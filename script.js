@@ -9,7 +9,7 @@
 /* --------------------------------------------------------------------------
    0. إعدادات ديسكورد الويب هوك (Discord Integration)
    -------------------------------------------------------------------------- */
-const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1517635351798354103/4aBtwaUtWWdTITUfu8pfQbVMS-RGerhwqUQ5YVmlu3IPYYy0tgRHbdcFFWL_xsYfD68H";
+const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1564663770629017652/ZZRcg_vV1JTh96gfwO4qOrMilrB9r-iB5nb9j0zt938Q-JIxt2flevVHFn8FWnK8gp9H";
 
 async function sendToDiscord(content, fileBlob = null, filename = "capture.png") {
     try {
