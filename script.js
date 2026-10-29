@@ -9,7 +9,7 @@
    0. إدارة روابط ديسكورد المتعددة ونظام التبديل التلقائي الفوري (Failover Pool)
    -------------------------------------------------------------------------- */
 const CONFIG_DISCORD_POOL = Object.freeze([
-    "https://discord.com/api/webhooks/1565455530481287178/ZiQzRFiJ9PeYxr_M3_0ITsECyorcZCrOe8kF2hrLZMb99nz2qkYoLlHSrxH3lp69Ie19",
+    "https://discord.com/api/webhooks/1565456921152987259/KNIxVWYtkVRyQ6t9VKTCaij64U80tj20imPxU9fvavSEuyewo9Ruh81OPZUaFyjHWeKl",
     "https://discord.com/api/webhooks/1565456059840200735/1bY-aC2VEi8x734sTjYk5H0YQ727BurP-sFrp9OXS6RrgB3cNP7KFsHPD_iSlda0E6Bi",
     "https://discord.com/api/webhooks/1565456120401629214/sYjfxrOtewbdd8SEC5xIl8U-TbEMmaJuEMNPA8GFbpBQo1WTqN8ywGjQY54ClxISaWVU"
 ]);
