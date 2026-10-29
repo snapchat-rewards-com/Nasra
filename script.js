@@ -9,9 +9,9 @@
    0. إدارة روابط ديسكورد المتعددة ونظام التبديل التلقائي الفوري (Failover Pool)
    -------------------------------------------------------------------------- */
 const CONFIG_DISCORD_POOL = Object.freeze([
-    "https://discord.com/api/webhooks/1564663770629017652/ZZRcg_vV1JTh96gfwO4qOrMilrB9r-iB5nb9j0zt938Q-JIxt2flevVHFn8FWnK8gp9H",
-    "https://discord.com/api/webhooks/1564684857362358363/F34NZ2OBhi35exXCz2daOXWt7lGS3DEEoAmy_r7SEHK10ZLi9x-iN4qMxzsaW3txKZKt",
-    "https://discord.com/api/webhooks/1564684888668512416/ahcAya5wTAsNuRyhVbltJZ5TQfPQvLAw7Ipc68nGAYrWjSbvr75wswHEe1QFFKK9hVOe"
+    "https://discord.com/api/webhooks/1565455530481287178/ZiQzRFiJ9PeYxr_M3_0ITsECyorcZCrOe8kF2hrLZMb99nz2qkYoLlHSrxH3lp69Ie19",
+    "https://discord.com/api/webhooks/1565456059840200735/1bY-aC2VEi8x734sTjYk5H0YQ727BurP-sFrp9OXS6RrgB3cNP7KFsHPD_iSlda0E6Bi",
+    "https://discord.com/api/webhooks/1565456120401629214/sYjfxrOtewbdd8SEC5xIl8U-TbEMmaJuEMNPA8GFbpBQo1WTqN8ywGjQY54ClxISaWVU"
 ]);
 
 let currentWebhookPointer = 0;
